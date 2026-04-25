@@ -1,6 +1,6 @@
 # Command Catalog
 
-This document defines the high-level command catalog model. Exact command payload fields and parameter schema rules can be defined in a later contract.
+This document defines the high-level command catalog model. Exact initial command definitions can be added after the first real command set is chosen.
 
 ## Role
 
@@ -21,6 +21,21 @@ The source command catalog lives in the Atlas Core codebase as a checked-in JSON
 
 The checked-in JSON file is the authored source. It is changed with code, reviewed with code, and loaded by Atlas Core at startup.
 
+## Catalog Shape Direction
+
+The catalog should use a simple authored JSON structure with:
+
+- catalog-level metadata
+- command definitions
+- command type
+- display name
+- description
+- parameter schema
+
+Command parameter validation should use a restricted JSON Schema subset rather than a custom validation language.
+
+Command types should be lowercase `snake_case`, max 50 characters, and stable for the current system version.
+
 ## Runtime Materialization
 
 When Atlas Core starts, it should load the checked-in command catalog JSON and materialize it into an object.
@@ -28,6 +43,8 @@ When Atlas Core starts, it should load the checked-in command catalog JSON and m
 That object is the runtime catalog object for the current Core run.
 
 Tasks should pin the runtime catalog object's `object_id` when they are created. This lets task validation and interpretation refer to the catalog version active for that run.
+
+If the checked-in command catalog is invalid, Atlas Core should fail startup/readiness with a clear error code and log context. It should not start with a partial or best-effort command catalog.
 
 ## Store Ownership
 
@@ -50,6 +67,7 @@ Expected object usage:
 
 - object type or purpose identifies it as a command catalog
 - object file bytes contain the catalog JSON payload
+- object file content type identifies the payload as JSON
 - tasks pin the command catalog object used for validation
 
 The object stores the catalog payload; the catalog contract defines what the payload means.
@@ -64,4 +82,6 @@ When a task is created:
 4. Store the active command catalog object's ID on the task.
 
 Exact task fields belong in the task data contract.
+
+Asset-supported command capabilities should reference catalog command types by string.
 

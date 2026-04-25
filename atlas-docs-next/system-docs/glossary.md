@@ -34,9 +34,9 @@ The first-party client package used by ATLAS-C3 tools to interact with Atlas Cor
 
 The operator-facing web application. It presents operational state, supports inspection and task authoring, and talks to Atlas Core through Atlas SDK.
 
-### Asset Runtime
+### Asset-Side Software
 
-The software running on a field asset. It reports state, receives or polls for assigned work, executes tasks, updates task status, and produces observations or other payloads.
+The software running on a field asset. It reports state, receives or polls for assigned work, executes tasks, updates task status, and produces observations or other payloads. These docs do not treat that software as an ATLAS-C3 module owned by this planning repo.
 
 ## Operational Records
 

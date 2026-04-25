@@ -4,6 +4,8 @@ This folder defines the Atlas Core HTTP API contract.
 
 Atlas Core implements this API. Atlas SDK wraps it. First-party clients should depend on Atlas SDK rather than duplicating raw HTTP behavior, but the API remains the shared contract underneath.
 
+Authentication and authorization are not part of the current operating model. The shared auth/security contract is [`../auth-security/overview.md`](../auth-security/overview.md).
+
 ## Contract Scope
 
 The Core API is responsible for exposing Atlas Core's current operational state and write behavior over HTTP.

@@ -53,25 +53,19 @@ Implementation details belong in `../module-docs/`. Shared API and data shapes b
 
 Atlas SDK is the first-party integration path for tools that talk to Atlas Core. It should centralize request construction, response parsing, runtime validation, error handling, and higher-level client helpers.
 
-The public SDK surface belongs in `../contracts/` because both SDK implementation and SDK consumers depend on it.
+The public SDK surface belongs in [`../contracts/sdk/overview.md`](../contracts/sdk/overview.md) because both SDK implementation and SDK consumers depend on it.
 
 ### Atlas Command Interface
 
 Atlas Command Interface is the operator-facing web application. It should present current state, support inspection, provide task authoring flows, and reflect confirmed server state rather than becoming a separate authority.
 
-Screen-level and component-level design belongs in `../module-docs/`.
-
-### Asset Runtime
-
-The asset runtime reports state, receives assigned work, executes tasks, updates task progress, and produces observations or other payloads.
-
-The shared asset-to-core protocol belongs in `../contracts/`. Runtime internals belong in `../module-docs/`.
+It should use Atlas SDK replica mode for current-state bootstrap, live updates, and stream recovery. Screen-level and component-level design belongs in [`../module-docs/atlas-command-interface/`](../module-docs/atlas-command-interface/).
 
 ### Data Fusion
 
 Data fusion turns observation evidence into authoritative system tracks. It should preserve the distinction between evidence reported by assets and truth maintained by the system.
 
-Fusion algorithms and implementation planning belong in `../module-docs/` unless they define shared data contracts.
+Data fusion is deferred and belongs to Atlas Core planning. Fusion algorithms and implementation planning belong in [`../module-docs/atlas-core/data-fusion.md`](../module-docs/atlas-core/data-fusion.md) unless they define shared data contracts.
 
 ## System Boundaries
 

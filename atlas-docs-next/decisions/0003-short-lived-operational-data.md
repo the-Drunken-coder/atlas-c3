@@ -14,7 +14,7 @@ This changes the amount of persistence complexity the system should carry.
 
 Atlas Core data is treated as short-lived operational state.
 
-Atlas Core should not include a database migration framework, rollback system, archival data-protection layer, or long-term data-retention machinery for the initial system.
+Atlas Core should not include a database migration framework, rollback system, archival data-protection layer, or long-term data-retention machinery under the current operating model.
 
 Schema setup should remain simple and startup-owned. During development or bounded deployments, destructive reset is acceptable when the stored data no longer matches the expected schema.
 
@@ -28,5 +28,5 @@ Schema setup should remain simple and startup-owned. During development or bound
 
 ## Rejected Direction
 
-Do not add migration frameworks, schema rollback tooling, or long-term data protection systems unless a future requirement changes the operating model.
+Do not add migration frameworks, schema rollback tooling, or long-term data protection systems unless the project explicitly changes away from the short-lived operational-state model.
 
