@@ -50,7 +50,7 @@ Entity types:
 
 Entities should share one record family rather than splitting assets, tracks, and geofeatures into unrelated tables. Type and subtype fields distinguish the kind of entity.
 
-Entity state may use components for structured state that evolves over time. Component rules should be defined in component contracts rather than copied into every entity-related doc.
+Entity state may use components for structured state that changes over time. Component rules should be defined in component contracts rather than copied into every entity-related doc.
 
 Important entity relationships:
 
@@ -70,7 +70,7 @@ Observations should capture source-owned evidence about something detected, meas
 Observation state should support:
 
 - source asset identity
-- first observed time
+- first observed timestamp
 - most recent observed time
 - kinematic evidence
 - classification evidence
@@ -153,7 +153,7 @@ Task command catalog pinning is an explicit exception. The task contract require
 
 Object file records store metadata for bytes belonging to an object.
 
-Object file metadata should own:
+Object file metadata should be the authoritative source for:
 
 - file identity
 - parent object reference
