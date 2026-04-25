@@ -67,6 +67,8 @@ pending -> acknowledged -> completed
 
 Terminal statuses should not transition back to active statuses.
 
+Additional intermediate transitions such as reject, start, and update progress are intentionally out of scope for the initial task status contract. They should only be added after this lifecycle and the Task API expand to define their meanings and valid transitions.
+
 ## Relationships
 
 - A task targets an asset through `asset_id`.

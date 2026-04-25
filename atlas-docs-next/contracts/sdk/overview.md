@@ -42,14 +42,19 @@ Expected asset-runtime helpers include:
 - observation submission
 - object file submission
 
-Task status transitions should be exposed as clear helpers:
+Task status transitions should be exposed as clear helpers only where they map to the current task status lifecycle defined by Atlas Core.
+
+Current SDK contract:
 
 - acknowledge
+- complete
+- fail
+
+Deferred until the task status model and API expand:
+
 - reject
 - start
 - update progress
-- complete
-- fail
 
 Observation submission should support creating an observation alone and submitting an observation with related files.
 
@@ -81,6 +86,8 @@ SDK errors should preserve Core error details, including:
 - Core error code
 - Core error ID
 - message
+- timestamp
+- path
 - details
 
 SDK input validation should stay lightweight: required fields, ID length, obvious enum values, and similarly cheap checks. Atlas Core remains authoritative.

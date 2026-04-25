@@ -48,7 +48,7 @@ Initial component areas from the old docs remain useful:
 
 - telemetry
 - geometry
-- task catalog
+- supported command capabilities
 - military/display view
 - health
 - sensor references

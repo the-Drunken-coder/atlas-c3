@@ -36,7 +36,7 @@ Atlas Core should not add stubbed security behavior that looks like auth but doe
 
 ## Command Interface
 
-Atlas Command Interface is a separate harmless client that talks to Atlas Core.
+Atlas Command Interface is a separate trusted client that talks to Atlas Core.
 
 It is not a security boundary and should not be treated as a privileged control plane.
 

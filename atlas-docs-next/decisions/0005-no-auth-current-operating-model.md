@@ -1,4 +1,8 @@
-# 0005 No Auth In Current Operating Model
+# 0005: No Auth In Current Operating Model
+
+## Status
+
+Accepted
 
 ## Context
 
