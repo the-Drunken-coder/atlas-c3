@@ -2,28 +2,164 @@
 
 Task endpoints manage work assigned to assets.
 
-Task record ownership is defined in [`../data-model/record-families.md`](../data-model/record-families.md). Shared API behavior is defined in [`conventions.md`](./conventions.md).
+Task record ownership is defined in [`../data-model/tasks.md`](../data-model/tasks.md). Command catalog behavior is defined in [`../data-model/command-catalog/overview.md`](../data-model/command-catalog/overview.md). Shared API behavior is defined in [`conventions.md`](./conventions.md). Error codes are defined in [`errors.md`](./errors.md).
+
+## Resource Shape
+
+```json
+{
+  "task_id": "task-001",
+  "status": "pending",
+  "asset_id": "asset-001",
+  "command_catalog_object_id": "command-catalog-20260101",
+  "json": {
+    "description": "Move to specified location",
+    "created_by": "operator-001",
+    "components": {
+      "command": { "type": "move_to_location" },
+      "parameters": {},
+      "progress": {},
+      "result": {},
+      "error": {}
+    },
+    "extra": {}
+  },
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-01T00:00:00Z"
+}
+```
 
 ## Endpoints
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/tasks` | List tasks |
-| `POST` | `/tasks` | Create a task |
-| `GET` | `/tasks/{task_id}` | Read a task |
-| `PATCH` | `/tasks/{task_id}` | Update a task |
-| `DELETE` | `/tasks/{task_id}` | Delete a task |
-| `POST` | `/tasks/{task_id}/status` | Transition task status |
+| Method | Path | Success | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/tasks` | `200` array | List tasks |
+| `POST` | `/tasks` | `201` resource | Create a task |
+| `GET` | `/tasks/{task_id}` | `200` resource | Read a task |
+| `PATCH` | `/tasks/{task_id}` | `200` resource | Update a task |
+| `DELETE` | `/tasks/{task_id}` | `204` empty | Delete a task |
+| `POST` | `/tasks/{task_id}/status` | `200` resource | Transition task status |
 
-## Notes
+## List Tasks
 
-Create requests must include `task_id`.
+`GET /tasks` returns a paginated JSON array.
 
-Tasks target assets.
+Supported filters:
 
-Task-related objects should be queried through [`objects.md`](./objects.md) using `owner_type=task` and `owner_id={task_id}`.
+- `asset_id`
+- `status`
 
-The active command catalog is exposed through objects. Task creation must capture and persist an immutable reference to the active command catalog object by storing `command_catalog_object_id` on the task.
+Default order: `updated_at` descending, then `task_id` ascending.
 
-For task creation, the provided `command_catalog_object_id` must match the active command catalog object used to validate `command.type` and parameters. After creation, validation and retries for that task should resolve commands through the task's stored `command_catalog_object_id`, not whatever catalog is globally active later in the process.
+## Create Task
 
+Request body:
+
+```json
+{
+  "task_id": "task-001",
+  "asset_id": "asset-001",
+  "command_catalog_object_id": "command-catalog-20260101",
+  "json": {
+    "description": "Move to specified location",
+    "created_by": "operator-001",
+    "components": {
+      "command": { "type": "move_to_location" },
+      "parameters": {}
+    },
+    "extra": {}
+  }
+}
+```
+
+Required fields: `task_id`, `asset_id`, `command_catalog_object_id`, `json.components.command.type`.
+
+Core sets initial `status` to `pending`. Create requests must not set `status`, `created_at`, or `updated_at`.
+
+Validation sequence:
+
+1. `asset_id` must exist and reference an entity whose `type` is `asset`.
+2. `command_catalog_object_id` must equal the active command catalog object ID exposed by `GET /`.
+3. `json.components.command.type` must exist in the active in-memory command catalog.
+4. `json.components.parameters` must satisfy that command's `parameters_schema`.
+5. The target asset must include `json.components.supported_commands`.
+6. The target asset's `supported_commands.commands` must include the requested command type.
+
+Failures:
+
+- `400 validation_failed` for missing fields, unknown fields, or invalid request shape.
+- `400 command_validation_failed` for invalid command type, parameters, catalog mismatch, missing asset `supported_commands`, or unsupported asset command.
+- `404 not_found` when `asset_id` or `command_catalog_object_id` does not exist.
+- `409 conflict` when `task_id` already exists.
+- `503 catalog_unavailable` when no active catalog is available.
+
+## Read Task
+
+`GET /tasks/{task_id}` returns the task resource or `404 not_found`.
+
+## Patch Task
+
+Mutable while `status` is `pending`:
+
+- `json.components.command`
+- `json.components.parameters`
+
+Mutable after creation in all non-terminal states:
+
+- `json.components.progress`
+- `json.components.result`
+- `json.components.error`
+- named top-level sections under `json.extra`
+
+Immutable after create:
+
+- `task_id`
+- `asset_id`
+- `command_catalog_object_id`
+- `status` through this endpoint
+- `json.description`
+- `json.created_by`
+- `created_at`
+- `updated_at`
+
+Command and parameter edits must re-run command validation against the task's pinned `command_catalog_object_id`.
+
+Use `POST /tasks/{task_id}/status` for lifecycle transitions.
+
+## Transition Task Status
+
+Request body:
+
+```json
+{
+  "status": "acknowledged",
+  "json": {
+    "components": {
+      "progress": {}
+    }
+  }
+}
+```
+
+Required fields: `status`.
+
+Allowed transitions:
+
+- `pending` -> `acknowledged`
+- `acknowledged` -> `completed`
+- `acknowledged` -> `failed`
+
+Repeating the current status is an idempotent no-op and returns `200` with the current task.
+
+`completed` and `failed` are terminal. Terminal statuses must not transition back to active statuses.
+
+Failures:
+
+- `400 invalid_status_transition` for disallowed transitions.
+- `404 not_found` when the task does not exist.
+
+## Delete Task
+
+Task delete returns `204 No Content` when successful.
+
+Delete must be rejected with `409 conflict` while task-owned objects exist.

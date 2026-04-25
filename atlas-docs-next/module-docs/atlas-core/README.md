@@ -8,8 +8,10 @@ This folder owns Atlas Core implementation planning. Shared API and data contrac
 
 - [`container-system.md`](./container-system.md) - high-level Docker/container shape for running Atlas Core locally.
 - [`runtime-shape.md`](./runtime-shape.md) - high-level local lifecycle flow and Python terminal UI expectations.
+- [`implementation-structure.md`](./implementation-structure.md) - planned file and package structure for the Atlas Core implementation repo.
+- [`storage-schema.md`](./storage-schema.md) - initial PostgreSQL table, constraint, index, and delete behavior plan.
 - [`internal-interfaces.md`](./internal-interfaces.md) - high-level internal boundaries for database, object metadata, and object file access.
-- [`data-fusion.md`](./data-fusion.md) - deferred Atlas Core planning boundary for observation-to-track fusion.
+- [`data-fusion.md`](./data-fusion.md) - data fusion worker boundary for observation-to-track processing.
 - [`stores/overview.md`](./stores/overview.md) - persistence-facing store boundaries and capabilities.
 - [`services/overview.md`](./services/overview.md) - service-layer responsibilities between HTTP handlers and stores.
 
@@ -28,4 +30,3 @@ This folder owns Atlas Core implementation planning. Shared API and data contrac
 - [`../../decisions/0003-short-lived-operational-data.md`](../../decisions/0003-short-lived-operational-data.md) - Core data is short-lived operational state.
 - [`../../decisions/0004-interactive-core-cli.md`](../../decisions/0004-interactive-core-cli.md) - Core uses an interactive Python CLI for local lifecycle management.
 - [`../../decisions/0005-no-auth-current-operating-model.md`](../../decisions/0005-no-auth-current-operating-model.md) - Core does not implement auth in the current operating model.
-

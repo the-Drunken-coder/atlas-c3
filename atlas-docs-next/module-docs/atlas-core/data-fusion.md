@@ -1,29 +1,62 @@
 # Data Fusion
 
-This document records the current Atlas Core planning boundary for future data fusion work.
+This document defines the current data fusion boundary.
+
+Data fusion turns observation evidence into authoritative track entities. The fusion algorithm and observation evidence inner shapes remain deferred, but the system boundary is settled enough to guide implementation.
 
 ## Current Direction
 
-Data fusion is deferred.
+Data fusion should run as a separate trusted worker container.
 
-Data fusion is part of Atlas Core planning, not a separate top-level module in these docs.
+Atlas Core remains the source of truth. Data fusion is a Core API client:
 
-Atlas Core remains useful without data fusion. Observations can exist without immediately producing or updating tracks.
+- reads observations through Atlas Core API or Atlas SDK
+- reads any needed current track/entity state through Atlas Core API or Atlas SDK
+- writes or updates track entities through Atlas Core API or Atlas SDK
+- listens to the Core stream when useful
 
-When data fusion exists, it should consume observations through Core contracts and write track entities through Core contracts.
+Data fusion should not:
 
-Data fusion should not change the first Core storage or API design right now.
+- run inside the Atlas Core process
+- bypass Atlas Core storage by writing to PostgreSQL
+- mutate object file bytes directly
+- introduce a separate source of truth for tracks
+- require changes to the Core storage shape before the fusion algorithm is designed
+
+## Container Boundary
+
+The worker container should be swappable.
+
+First-party and third-party fusion containers may exist as long as they follow the shared Core contracts. This lets ATLAS-C3 expose a common system outline while allowing different fusion implementations for different deployments.
+
+The expected local service name is `atlas-data-fusion` when the worker is included in Docker Compose.
+
+## Inputs And Outputs
+
+Inputs:
+
+- observations from [`../../contracts/core-api/observations.md`](../../contracts/core-api/observations.md)
+- current entities and tracks from [`../../contracts/core-api/entities.md`](../../contracts/core-api/entities.md)
+- object metadata and file content through the object API when fusion needs attached evidence payloads
+
+Outputs:
+
+- track entities written through the entity API
+- optional logs explaining fusion decisions
+
+Fusion-created or fusion-updated tracks should use normal entity records with `type: "track"`.
 
 ## Deferred Design Areas
 
-The following are deferred:
+The following remain deferred:
 
 - how observations become tracks
 - which observation evidence fields fusion consumes
 - track creation and update rules
 - confidence and uncertainty handling
 - association rules for matching observations to existing tracks
-- whether fusion runs synchronously on writes or asynchronously
-- how fusion publishes resulting entity changes
-- debugging and explainability for fusion decisions
-- first implementation scope
+- whether a specific fusion implementation polls, streams, or combines both
+- debugging and explainability details for fusion decisions
+- first implementation algorithm scope
+
+These are real design areas, not implementation details to guess from the current docs.

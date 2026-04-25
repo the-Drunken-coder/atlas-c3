@@ -14,9 +14,15 @@ The Atlas Core Compose project should include:
 - PostgreSQL
 - a filesystem volume for object file bytes
 
+The Compose project may also include an optional data fusion worker container:
+
+- `atlas-data-fusion`
+
 Atlas Command Interface should run outside the Atlas Core Compose project as a separate dev app/client.
 
 SDK consumers, simulations, debugging tools, asset runtimes, and Atlas Command Interface connect to Atlas Core over the host-exposed Core API port.
+
+Data fusion is also a trusted Core API client. It should connect to Atlas Core over HTTP/SSE and should not use PostgreSQL as an integration surface.
 
 PostgreSQL should be reachable by Atlas Core on the Compose network. It does not need to be part of the public client contract.
 
@@ -33,6 +39,8 @@ These are defaults for planning and local development. Implementation may allow 
 ## Service Discovery
 
 Inside Docker Compose, Atlas Core should connect to PostgreSQL by Compose service name.
+
+Inside Docker Compose, `atlas-data-fusion` should connect to Atlas Core by Compose service name when present.
 
 Outside Docker Compose, trusted clients should use `http://localhost:8080` for Atlas Core by default.
 
@@ -55,5 +63,7 @@ This topology should not introduce:
 - Kubernetes
 - service mesh
 - production hardening
+
+The optional data fusion worker does not change these non-goals. It is a client container around Core contracts, not a second backend or storage owner.
 
 Future topology changes that alter module boundaries or storage shape should become decision records.

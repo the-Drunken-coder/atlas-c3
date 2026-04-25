@@ -21,7 +21,7 @@ The API should cover:
 - live change stream
 - command catalog access
 
-The current high-level endpoint inventory is [`planned-endpoints.md`](./planned-endpoints.md). The planned URL layout is [`endpoint-layout.md`](./endpoint-layout.md). Shared API rules are defined in [`conventions.md`](./conventions.md).
+The current high-level endpoint inventory is [`planned-endpoints.md`](./planned-endpoints.md). The planned URL layout is [`endpoint-layout.md`](./endpoint-layout.md). Shared API rules are defined in [`conventions.md`](./conventions.md), and stable error codes are defined in [`errors.md`](./errors.md).
 
 ## Data Model Source
 
@@ -60,10 +60,11 @@ Internal Atlas Core stores should be shaped after the endpoint layout and resour
 
 ## Resource Docs
 
-Planned resource docs:
+Resource docs:
 
 - `endpoint-layout.md`
 - `conventions.md`
+- `errors.md`
 - `system.md`
 - `entities.md`
 - `observations.md`
@@ -73,4 +74,3 @@ Planned resource docs:
 - `stream.md`
 
 These files should link to this overview and to the relevant data-model contracts.
-

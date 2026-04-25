@@ -11,7 +11,8 @@ API contract: [`../../../contracts/core-api/tasks.md`](../../../contracts/core-a
 - enforce that tasks target assets
 - validate requested commands against the active in-memory command catalog
 - validate command parameters against the active command catalog rules
-- check that the target asset supports the requested command
+- check that the target asset has `json.components.supported_commands`
+- check that the target asset's `supported_commands.commands` includes the requested command
 - require `command_catalog_object_id` on create and ensure it matches the active catalog used for command validation
 - pin the active command catalog object ID on created tasks
 - coordinate task persistence through the regular record store
@@ -31,9 +32,4 @@ The command catalog is not a service or store. It is checked-in JSON materialize
 
 Once a task exists, command validation and retries for that task should resolve command definitions through the task's stored `command_catalog_object_id`, not through a later global active catalog value.
 
-## Notes
-
-The task status lifecycle should be defined in the task data/API contract before implementation.
-
 Optimistic concurrency should only be added where realistic task multi-writer collisions exist.
-

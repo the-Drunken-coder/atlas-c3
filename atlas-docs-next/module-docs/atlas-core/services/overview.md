@@ -23,6 +23,7 @@ Service planning follows:
 - [`object-service.md`](./object-service.md)
 - [`query-service.md`](./query-service.md)
 - [`event-publisher.md`](./event-publisher.md)
+- [`testing.md`](./testing.md)
 
 ## Non-Service Startup Work
 

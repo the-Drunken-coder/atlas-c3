@@ -6,7 +6,7 @@ This document defines the current ATLAS-C3 auth and security operating model.
 
 Atlas Core should not have authentication or authorization in the current operating model.
 
-This is not only a v1 shortcut. Future work should not assume auth will be added unless the operating model changes.
+This is not a temporary shortcut. Future work should not assume auth will be added unless the operating model changes.
 
 Trusted clients include:
 

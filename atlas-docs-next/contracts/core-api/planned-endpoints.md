@@ -1,14 +1,16 @@
 # Planned Core API Endpoints
 
-This document is a high-level endpoint inventory for Atlas Core. It names the planned API groups without defining request and response shapes.
+This document is a high-level endpoint inventory for Atlas Core. It names the API groups and links to the resource docs that define request and response shapes.
 
-Detailed endpoint contracts should be written in separate files later and linked from here. The planned URL layout is [`endpoint-layout.md`](./endpoint-layout.md).
+Detailed endpoint contracts live in separate resource docs. The planned URL layout is [`endpoint-layout.md`](./endpoint-layout.md).
 
 Atlas Core internal stores should be shaped to support these resource groups, not designed independently first.
 
 ## System Endpoints
 
 Purpose: identify the service and expose process/dependency status.
+
+Detailed contract: [`system.md`](./system.md).
 
 Planned groups:
 
@@ -21,6 +23,8 @@ The service descriptor should expose important system-owned identifiers, includi
 ## Entity Endpoints
 
 Purpose: manage current-state records for assets, tracks, and geofeatures.
+
+Detailed contract: [`entities.md`](./entities.md).
 
 Planned groups:
 
@@ -35,18 +39,23 @@ Planned groups:
 
 Purpose: manage first-class observation evidence records.
 
+Detailed contract: [`observations.md`](./observations.md).
+
 Planned groups:
 
 - create observation
 - read observation
 - list observations
 - update observation
+- delete observation
 
 Observation records are first-class by decision: [`../../decisions/0001-first-class-observations.md`](../../decisions/0001-first-class-observations.md).
 
 ## Task Endpoints
 
-Purpose: manage work assigned to assets or other taskable entities.
+Purpose: manage work assigned to assets.
+
+Detailed contract: [`tasks.md`](./tasks.md).
 
 Planned groups:
 
@@ -60,6 +69,8 @@ Planned groups:
 ## Object And File Endpoints
 
 Purpose: manage object metadata and files stored through the Core object file system.
+
+Detailed contract: [`objects.md`](./objects.md).
 
 Planned groups:
 
@@ -80,6 +91,8 @@ Objects store file containers and payload metadata. Observation lifecycle rules 
 
 Purpose: support broad current-state reads for clients that need to bootstrap or refresh local state.
 
+Detailed contract: [`queries.md`](./queries.md).
+
 Planned groups:
 
 - full current-state query
@@ -89,6 +102,8 @@ Query endpoints are for current state, not historical replay.
 ## Stream Endpoints
 
 Purpose: publish live changes so clients can refresh or update local state.
+
+Detailed contract: [`stream.md`](./stream.md).
 
 Planned groups:
 
@@ -101,4 +116,3 @@ The stream is live-only. It is not the system of record and should not be treate
 The command catalog is stored and exposed through the object API. It should not have command-catalog-specific API endpoints.
 
 The command catalog source is checked-in Atlas Core JSON, and its runtime representation is an object-backed payload. Clients discover the active command catalog object ID from the service descriptor, then read it through object and file endpoints. The data contract is [`../data-model/command-catalog/overview.md`](../data-model/command-catalog/overview.md).
-

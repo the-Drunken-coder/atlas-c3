@@ -36,14 +36,17 @@ Core runtime behavior is described in [`../../module-docs/atlas-core/runtime-sha
 
 ## Workflow Areas
 
-Detailed workflow docs can be written for:
+Detailed workflow docs:
 
-- asset comes online and becomes visible to operators
-- operator creates a task for an asset
-- asset receives, executes, and reports task progress
-- asset produces an observation and related object files
+- [`asset-online.md`](./asset-online.md) - asset comes online and becomes visible to operators.
+- [`operator-creates-task.md`](./operator-creates-task.md) - operator creates a task for an asset.
+- [`asset-executes-task.md`](./asset-executes-task.md) - asset receives, executes, and reports task lifecycle state.
+- [`asset-submits-observation-files.md`](./asset-submits-observation-files.md) - asset produces an observation and related object files.
+- [`core-startup-command-catalog.md`](./core-startup-command-catalog.md) - Atlas Core restarts and rematerializes the command catalog.
+
+Workflow docs still needed later:
+
 - UI starts up through SDK replica mode and becomes live
-- Atlas Core restarts and rematerializes the command catalog
 - local destructive restart and shutdown
 - debugging and simulation workflows
 
@@ -51,4 +54,4 @@ Detailed workflow docs can be written for:
 
 Observation evidence updating a track is deferred with data fusion planning.
 
-Data fusion planning is part of Atlas Core and is documented in [`../../module-docs/atlas-core/data-fusion.md`](../../module-docs/atlas-core/data-fusion.md).
+Data fusion worker boundaries are documented in [`../../module-docs/atlas-core/data-fusion.md`](../../module-docs/atlas-core/data-fusion.md). Fusion algorithms and evidence field choices remain deferred.

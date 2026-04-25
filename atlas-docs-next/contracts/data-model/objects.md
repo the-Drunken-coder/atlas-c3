@@ -65,6 +65,17 @@ Object file IDs are globally unique even though file API paths are nested under 
 
 File bytes should not be mutated in place. A byte-content change should be represented by deleting and uploading an object file, or by a later explicit replace operation that updates metadata and preserves event behavior.
 
+## File Metadata And Parent Object Consistency
+
+Object file fields such as **`size_bytes`**, **`content_type`**, and **`path`** are **Core-owned** outcomes of upload, delete, replace, or internal publish steps. Callers should not treat `PATCH` on object files as a way to assert byte length or on-disk layout.
+
+To avoid stale parent rows when file metadata changes, Atlas Core should apply **one PostgreSQL transaction** per successful file mutation that:
+
+- inserts, updates, or deletes the **object file** metadata row as required, including **`size_bytes`** derived from the stored bytes (or from validated upload size before commit, per [`../../decisions/0006-object-file-write-ordering.md`](../../decisions/0006-object-file-write-ordering.md))
+- bumps the parent **object** row's **`updated_at`** whenever file metadata visible through the object API changes
+
+Clients should rely on **`GET /objects/{object_id}`**, **`GET /objects/{object_id}/files/{file_id}`**, **`GET /queries/full`**, or stream object events—not on guessing object row freshness independently of file rows.
+
 ## Expected Object Uses
 
 - observation media

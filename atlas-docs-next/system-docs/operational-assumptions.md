@@ -40,7 +40,7 @@ The stream behavior is defined in [`../contracts/core-api/stream.md`](../contrac
 
 Atlas Command Interface should use SDK replica mode for current-state bootstrap, live updates, stream disconnect recovery, and full refresh. SDK behavior is defined in [`../contracts/sdk/overview.md`](../contracts/sdk/overview.md).
 
-Open Question: Asset-specific reconnect behavior still needs exact protocol rules for state resubmission, task status recovery, retry, and idempotency.
+Asset reconnect, resubmission after ambiguous failures, and basic idempotency expectations are defined in [`../contracts/asset-core-protocol/overview.md`](../contracts/asset-core-protocol/overview.md) under **Reconnect State Recovery** and **Idempotency And Duplicate Writes**. Atlas Core should implement those HTTP-level rules consistently so SDK helpers can expose predictable retry behavior.
 
 ## Storage Availability
 
@@ -52,7 +52,9 @@ Requests that need unavailable storage should fail with the standard Core API er
 
 Existing structured reads may still work when PostgreSQL is healthy, but the system should not claim readiness without object file storage.
 
-Open Question: File write consistency needs a simple explicit rule for what Core does when metadata writes and filesystem writes do not both succeed.
+File write ordering and failure behavior are decided in [`../decisions/0006-object-file-write-ordering.md`](../decisions/0006-object-file-write-ordering.md).
+
+Core referential integrity and delete rules are decided in [`../decisions/0007-core-referential-integrity.md`](../decisions/0007-core-referential-integrity.md).
 
 ## Event Publication Failures
 
@@ -65,6 +67,8 @@ If a mutation succeeds but event publication fails, the mutation should remain c
 Logging is a first-class operational requirement.
 
 ATLAS-C3 behavior will include non-deterministic systems, simulations, field integrations, and task execution paths that can be difficult to evaluate from final state alone. The system should produce detailed logs that can be exported and analyzed after a run, including by large language models.
+
+The structured logging contract is [`observability.md`](./observability.md).
 
 Core logging should capture at minimum:
 
@@ -80,7 +84,7 @@ Core logging should capture at minimum:
 
 Logs should avoid fake success states. If a write, file operation, event publish, or task update fails, the logs should make the failure visible enough to diagnose the sequence that led to it.
 
-Exact log format, correlation IDs, retention path, and export workflow still need implementation-level design.
+Logs should use the shared run logging fields, correlation IDs, and category structure defined in the observability contract.
 
 ## Simulation And Debugging
 
@@ -106,4 +110,3 @@ The current operating model excludes:
 - fake or mocked product data in development or production behavior
 
 These are not expected follow-on features for later versions under the same operating model. Adding one would require changing the system assumptions, not simply filling in missing implementation detail.
-

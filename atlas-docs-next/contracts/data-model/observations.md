@@ -43,16 +43,15 @@ Observation JSON may contain:
 
 `evidence` is observation-specific. It is not the same component catalog used by entities and tasks.
 
-## Evidence Areas
+## Evidence Boundary
 
-Initial evidence areas:
+Observations are evidence, not fused truth. Tracks are authoritative fused or current truth.
 
-- `kinematics` - observed position, velocity, heading, and related motion fields
-- `classification` - observed type or category evidence
-- `identity` - strong identifying evidence such as plate, transponder, or other external identifiers
-- `uncertainty` - confidence, covariance, source quality, or other uncertainty metadata
+`json.evidence` remains an opaque named-section container until the fusion model and evidence contracts are designed. Known section names such as `kinematics`, `classification`, `identity`, and `uncertainty` may be used as broad buckets, but this document does not define their inner fields.
 
-Exact field shapes should be defined before implementation.
+Data fusion may ignore evidence sections it does not understand.
+
+Evidence sections should include their own measurement timestamp once their inner shapes are defined.
 
 ## Relationships
 
@@ -67,7 +66,7 @@ Observations may be updated over time with `PATCH`.
 
 There is no finalize or close state in the API plan. If an asset stops updating an observation, the last state remains available until deleted or reset.
 
-Patch behavior for nested `evidence` sections must be defined before implementation. The contract should avoid accidental shallow merges that partially corrupt nested observation evidence.
+Patch behavior for nested `evidence` sections follows the Core API named-section replacement rule. A patch that replaces `json.evidence.kinematics` replaces that section as a whole and does not deep-merge into the existing object.
 
 ## Validation Boundaries
 
@@ -86,4 +85,3 @@ Database constraints should enforce:
 - non-null `first_observed_at`
 - non-null `last_observed_at`
 - non-null `json`
-

@@ -58,8 +58,8 @@ Atlas Core should not claim readiness without object file storage.
 
 Stale task state should be resolved by reading current task state from Core through the SDK.
 
-## Deferred Data Flow
+## Data Fusion Data Flow
 
-Data fusion flow from observations to tracks is deferred.
+Observation-to-track algorithm details are deferred.
 
-Future fusion should consume observations through Core contracts and write track entities through Core contracts. Fusion planning belongs in [`../module-docs/atlas-core/data-fusion.md`](../module-docs/atlas-core/data-fusion.md).
+Data fusion should run as a trusted worker container when present. It consumes observations through Core contracts and writes track entities through Core contracts. Fusion boundary planning belongs in [`../module-docs/atlas-core/data-fusion.md`](../module-docs/atlas-core/data-fusion.md).

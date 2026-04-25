@@ -65,7 +65,7 @@ It should use Atlas SDK replica mode for current-state bootstrap, live updates, 
 
 Data fusion turns observation evidence into authoritative system tracks. It should preserve the distinction between evidence reported by assets and truth maintained by the system.
 
-Data fusion is deferred and belongs to Atlas Core planning. Fusion algorithms and implementation planning belong in [`../module-docs/atlas-core/data-fusion.md`](../module-docs/atlas-core/data-fusion.md) unless they define shared data contracts.
+Data fusion runs outside the Atlas Core process as a trusted worker container when present. Fusion algorithms and implementation planning belong in [`../module-docs/atlas-core/data-fusion.md`](../module-docs/atlas-core/data-fusion.md) unless they define shared data contracts.
 
 ## System Boundaries
 
@@ -99,4 +99,3 @@ Use this overview for cross-system shape only.
 - Document module implementation details in `../module-docs/`.
 - Record durable architecture choices in `../decisions/`.
 - Link to authoritative docs instead of repeating their rules.
-

@@ -14,7 +14,7 @@ Clients include Atlas Command Interface, Atlas SDK consumers, simulations, debug
 
 Atlas Core should not implement authentication or authorization in the current operating model.
 
-This is not a temporary v1-only placeholder. Future work should not assume auth will be added unless the operating model changes.
+This is not a temporary placeholder. Future work should not assume auth will be added unless the operating model changes.
 
 Atlas Core should not add fake auth, placeholder credentials, local shared secrets, stubbed security paths, role scaffolding, or per-record permission machinery.
 

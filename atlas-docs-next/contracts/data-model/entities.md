@@ -33,30 +33,35 @@ Entity JSON may contain:
 ```json
 {
   "published_at": "2026-01-01T00:00:00Z",
-  "components": {},
+  "components": {
+    "supported_commands": {
+      "observed_at": "2026-01-01T00:00:00Z",
+      "commands": []
+    }
+  },
   "extra": {}
 }
 ```
 
 `components` holds structured current state. `extra` is for non-promoted metadata that does not belong to a known component.
 
-## Component Direction
+## Components
 
-Entity components should be documented in separate component contracts before implementation. The component contract index is [`components/overview.md`](./components/overview.md).
+Entity components are documented in [`components/overview.md`](./components/overview.md).
 
-Initial component areas from the old docs remain useful:
+Canonical components:
 
-- telemetry
-- geometry
-- supported command capabilities
-- military/display view
-- health
-- sensor references
-- communications
-- task queue
-- status
-- heartbeat
+- [`heartbeat`](./components/heartbeat.md)
+- [`communications`](./components/communications.md)
+- [`health`](./components/health.md)
+- [`telemetry`](./components/telemetry.md)
+- [`geometry`](./components/geometry.md)
+- [`sensor_refs`](./components/sensor_refs.md)
+- [`status`](./components/status.md)
+- [`supported_commands`](./components/supported_commands.md)
 - `custom_*`
+
+Asset entities must include `json.components.supported_commands`. Assets without this component are invalid. An asset with an empty command list is valid but cannot receive tasks.
 
 Object references should not be duplicated as entity components by default. Objects own their relationship links through the object data contract.
 
@@ -73,8 +78,9 @@ API/runtime validation should enforce:
 
 - valid entity type
 - max 50-character `entity_id`
-- component applicability once component contracts exist
-- no unknown component keys except `custom_*`, once component contracts exist
+- component applicability from [`components/overview.md`](./components/overview.md)
+- no unknown component keys except `custom_*`
+- `supported_commands` presence for assets
 
 Database constraints should enforce:
 
@@ -87,4 +93,3 @@ Database constraints should enforce:
 Entity delete is allowed.
 
 Assets are not expected to be deleted often in normal operation, but delete remains useful for debugging, simulation, and local reset workflows.
-

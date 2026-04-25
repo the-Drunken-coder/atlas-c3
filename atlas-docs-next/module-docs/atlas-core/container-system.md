@@ -16,6 +16,7 @@ The system should be simple enough to understand at a glance:
 - one PostgreSQL container for structured operational state
 - one managed volume for object file bytes
 - one private Docker network connecting the service to its storage dependencies
+- optional trusted worker containers, such as data fusion, that connect through the Core API
 
 ## Planned Containers
 
@@ -56,6 +57,20 @@ Atlas Core should treat stored file paths as logical paths managed by the applic
 
 Objects are the system's file-container abstraction. A file associated with an observation, task, command catalog, or other record should be stored through an object; the owning record links to that object rather than storing bytes directly.
 
+### Optional `atlas-data-fusion`
+
+Runs a data fusion worker when the deployment includes one.
+
+Responsibilities:
+
+- read observations through Atlas Core API or SDK
+- read current entity/track state through Atlas Core API or SDK
+- write track entities through Atlas Core API or SDK
+- listen to Core stream events when useful
+- log fusion decisions and processing durations
+
+The worker should not use PostgreSQL as an integration surface or mutate object file bytes. Atlas Core remains the source of truth.
+
 ## Startup Flow
 
 At a high level, startup should happen in this order:
@@ -67,6 +82,8 @@ At a high level, startup should happen in this order:
 5. Materialize startup records that Core owns.
 6. Start the HTTP server.
 7. Mark readiness only after required dependencies are usable.
+
+Optional worker containers should start after Atlas Core is reachable, but Atlas Core readiness should not depend on data fusion being present.
 
 ## Readiness Model
 
@@ -91,4 +108,3 @@ The initial container system should not include:
 - global Docker cleanup outside Atlas Core project resources
 
 Those choices can be revisited through a decision record if the system later needs them.
-

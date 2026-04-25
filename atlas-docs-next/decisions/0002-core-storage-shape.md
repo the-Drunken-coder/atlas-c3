@@ -34,7 +34,7 @@ Objects are the file-container system. Files associated with observations, tasks
 - Object metadata and object file bytes are separate concerns.
 - PostgreSQL stores logical file paths and metadata, not file bytes.
 - Atlas Core readiness should fail when required database or filesystem storage dependencies are unavailable.
-- File write consistency needs a simple, explicit approach because filesystem writes do not roll back automatically with database transactions.
+- File write consistency needs a simple, explicit approach because filesystem writes do not roll back automatically with database transactions. The accepted approach is [`0006-object-file-write-ordering.md`](./0006-object-file-write-ordering.md).
 - There is no separate object database service in the initial architecture.
 
 ## Rejected Direction

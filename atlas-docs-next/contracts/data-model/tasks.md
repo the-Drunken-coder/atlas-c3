@@ -47,7 +47,31 @@ Every task should have:
 
 During task creation, `command_catalog_object_id` is required and must match the active command catalog object used to validate `command.type` and `parameters`.
 
+The target asset must include [`supported_commands`](./components/supported_commands.md). Task creation must fail unless `json.components.command.type` is listed in the target asset's `supported_commands.commands`.
+
 After creation, validation and retries for that task should resolve command definitions through the task's stored `command_catalog_object_id`, not through a later global active catalog value.
+
+## Patch And Edit Rules
+
+Some task fields should stay stable so clients can trust identity, provenance, and catalog pinning. Other fields should stay editable long enough for normal operator fixes, especially command parameters, before an asset commits to execution.
+
+### Immutable After Create
+
+These should not change after `POST /tasks`:
+
+- `task_id`
+- `asset_id`
+- `command_catalog_object_id`
+- `json.description`
+- `json.created_by`
+
+### Editable By Lifecycle Stage
+
+- While `status` is `pending`, `PATCH` may replace **`json.components.command`** and/or **`json.components.parameters`** using the same **replace named component** semantics as entities (no accidental deep-merge). Each successful write must re-run the same checks as task creation: `command.type` exists in the **pinned** catalog, `parameters` match that command's rules in the pinned catalog, and the target asset still supports the command.
+- After the task leaves `pending` (for example `acknowledged`, `completed`, or `failed`), **`json.components.command` and `json.components.parameters` are immutable**. Further work should flow through **`json.components.progress`**, **`json.components.result`**, **`json.components.error`**, and status transitions.
+- `status` should transition through **`POST /tasks/{task_id}/status`** as the primary lifecycle path. If `PATCH` also accepts `status`, it must enforce the same transition rules.
+
+Terminal statuses must not accept command or parameter edits.
 
 ## Status Lifecycle
 
@@ -88,7 +112,8 @@ API/runtime validation should enforce:
 - valid status transitions
 - `command.type` exists in the pinned command catalog
 - `parameters` match the pinned command catalog rules
-- target asset supports the requested command
+- target asset has `json.components.supported_commands`
+- target asset's `supported_commands.commands` includes the requested command
 
 Database constraints should enforce:
 
@@ -103,4 +128,3 @@ Database constraints should enforce:
 Task delete is allowed.
 
 Tasks are operational data and may be removed during simulation, debugging, or reset workflows.
-
