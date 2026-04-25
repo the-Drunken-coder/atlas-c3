@@ -58,10 +58,10 @@ The object stores the catalog payload; the catalog contract defines what the pay
 
 When a task is created:
 
-1. Atlas Core validates the requested command against the active in-memory catalog.
-2. Atlas Core validates the command parameters against the command's parameter rules.
-3. Atlas Core checks that the target asset supports the command.
-4. Atlas Core stores the active command catalog object's ID on the task.
+1. Validate the requested command against the active in-memory catalog.
+2. Validate command parameters against the command's parameter rules.
+3. Check that the target asset supports the command.
+4. Store the active command catalog object's ID on the task.
 
 Exact task fields belong in the task data contract.
 

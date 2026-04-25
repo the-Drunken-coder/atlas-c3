@@ -28,12 +28,18 @@ Shutdown should stop the Atlas Core containers and remove the project-owned cont
 
 This destructive cleanup is scoped to Atlas Core project resources, not unrelated Docker resources on the developer's machine.
 
+Before restart or shutdown proceeds, the CLI must show a clear destructive warning and require typed confirmation, such as `Type YES to continue`.
+
+A non-interactive override flag, such as `--yes` or `--confirm`, may bypass the typed confirmation for automation. The flag must be explicit and should be documented in CLI help text.
+
 ## Consequences
 
 - Local operation is menu-driven and does not require memorized command flags.
 - Restart and shutdown clear stored Core data and object file bytes by removing project volumes.
 - The next start may need to rebuild or pull images again.
 - The CLI must clearly label restart and shutdown as destructive before running them.
+- Interactive use requires typed confirmation before destructive actions.
+- Automation may use an explicit confirmation flag to skip the prompt.
 - Runtime docs and implementation should avoid adding migration or rollback paths to compensate for shutdown cleanup.
 
 ## Rejected Direction

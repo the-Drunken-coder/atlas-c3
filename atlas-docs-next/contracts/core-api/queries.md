@@ -23,5 +23,7 @@ Expected contents:
 
 The full query should not include object file bytes.
 
+The response should represent one logical read snapshot for structured state and object metadata. Since these records live in PostgreSQL, Atlas Core should assemble the response from a single read-only database transaction where possible.
+
 This endpoint is not a historical replay API.
 

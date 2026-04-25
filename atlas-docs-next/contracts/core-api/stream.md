@@ -24,9 +24,20 @@ The stream is live-only:
 
 Object metadata create, update, and delete operations should emit object events.
 
-Object file upload and delete operations should also emit object events because they change the object/file metadata visible through the object API.
+File uploads and deletions should also emit object events because they change the object/file metadata visible through the object API.
 
-Object events should not include file bytes. Clients that need file content should fetch it through the object file content endpoint.
+Events must not include file bytes. Clients that need file content should fetch it through the object file content endpoint.
+
+## Event Scope
+
+The stream should cover successful create, update, and delete mutations for:
+
+- entities
+- observations
+- tasks
+- objects
+
+Object file upload and delete are published as object events.
 
 Atlas Core should not support mutating file bytes in place as a separate event category. If file bytes need to change, callers should use delete/upload or a later replace-style operation that updates object file metadata and emits an object event.
 

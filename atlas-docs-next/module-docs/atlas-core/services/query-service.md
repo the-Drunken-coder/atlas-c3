@@ -12,6 +12,14 @@ API contract: [`../../../contracts/core-api/queries.md`](../../../contracts/core
 - coordinate broad reads across the regular record store and object store
 - keep query behavior current-state focused, not historical replay
 
+## Snapshot Semantics
+
+`GET /queries/full` should represent one logical read snapshot for structured state and object metadata.
+
+Because entities, observations, tasks, and object metadata live in PostgreSQL, the query service should assemble them from a single read-only database transaction where possible. Object file bytes are excluded, so filesystem byte consistency is not part of this endpoint's snapshot guarantee.
+
+If implementation cannot provide one database snapshot, the API contract must document that weaker behavior before implementation.
+
 ## Store Usage
 
 Uses:

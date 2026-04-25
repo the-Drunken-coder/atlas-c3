@@ -21,5 +21,6 @@ This folder owns Atlas Core implementation planning. Shared API and data contrac
 - [`../../contracts/core-api/conventions.md`](../../contracts/core-api/conventions.md) - shared Core API response, error, ID, pagination, update, and delete rules.
 - [`../../contracts/core-api/planned-endpoints.md`](../../contracts/core-api/planned-endpoints.md) - high-level planned Core API endpoint groups.
 - [`../../decisions/0001-first-class-observations.md`](../../decisions/0001-first-class-observations.md) - observations are first-class records, not object conventions.
+- [`../../decisions/0002-core-storage-shape.md`](../../decisions/0002-core-storage-shape.md) - Core uses PostgreSQL for structured state and a filesystem volume for object bytes.
 - [`../../decisions/0004-interactive-core-cli.md`](../../decisions/0004-interactive-core-cli.md) - Core uses an interactive Python CLI for local lifecycle management.
 

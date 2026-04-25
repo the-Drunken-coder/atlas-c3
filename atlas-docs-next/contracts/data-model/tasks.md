@@ -11,6 +11,7 @@ Record-family context lives in [`record-families.md`](./record-families.md). API
 | `task_id` | Creator-supplied ID, max 50 characters |
 | `status` | Current task status |
 | `asset_id` | Target asset entity ID |
+| `command_catalog_object_id` | Pinned command catalog object used for validation |
 | `json` | Command, parameters, progress, result, and task metadata |
 | `created_at` | Core-created timestamp |
 | `updated_at` | Core-updated timestamp |
@@ -25,7 +26,6 @@ Task JSON may contain:
 {
   "description": "Move to specified location",
   "created_by": "operator-001",
-  "command_catalog_object_id": "catalog-object-id",
   "components": {
     "command": { "type": "move_to_location" },
     "parameters": {},
@@ -45,7 +45,9 @@ Every task should have:
 - a command type
 - a pinned command catalog object ID
 
-The task service validates command type and parameters against the active command catalog during creation.
+During task creation, `command_catalog_object_id` is required and must match the active command catalog object used to validate `command.type` and `parameters`.
+
+After creation, validation and retries for that task should resolve command definitions through the task's stored `command_catalog_object_id`, not through a later global active catalog value.
 
 ## Status Lifecycle
 
@@ -68,7 +70,7 @@ Terminal statuses should not transition back to active statuses.
 ## Relationships
 
 - A task targets an asset through `asset_id`.
-- A task pins the command catalog object used for validation.
+- A task pins the command catalog object used for validation through `command_catalog_object_id`.
 - Objects may be owned by a task for attachments, results, evidence, or generated payloads.
 
 Task-owned objects use `owner_type=task` and `owner_id={task_id}`.
@@ -79,9 +81,11 @@ API/runtime validation should enforce:
 
 - max 50-character `task_id`
 - target entity exists and is an asset
+- required `command_catalog_object_id` on create
+- `command_catalog_object_id` equals the active catalog object used for command validation at creation time
 - valid status transitions
-- `command.type` exists in the active command catalog
-- `parameters` match the command catalog rules
+- `command.type` exists in the pinned command catalog
+- `parameters` match the pinned command catalog rules
 - target asset supports the requested command
 
 Database constraints should enforce:
@@ -89,6 +93,7 @@ Database constraints should enforce:
 - primary key on `task_id`
 - non-null `status`
 - non-null `asset_id`
+- non-null `command_catalog_object_id`
 - non-null `json`
 
 ## Delete Behavior

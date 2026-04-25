@@ -101,8 +101,8 @@ These constraints can be revised by a decision record in `../decisions/`, but th
 
 Use this overview for cross-system shape only.
 
-- Put exact shared interfaces in `../contracts/`.
-- Put module implementation details in `../module-docs/`.
-- Put durable architecture choices in `../decisions/`.
+- Store exact shared interfaces in `../contracts/`.
+- Document module implementation details in `../module-docs/`.
+- Record durable architecture choices in `../decisions/`.
 - Link to authoritative docs instead of repeating their rules.
 

@@ -147,6 +147,8 @@ Important object relationships:
 
 Object relationship links should have one authoritative direction: the object records which entity, observation, task, or system-owned record uses it. Owning records should not duplicate object references in their own JSON unless a later contract identifies a specific reason and defines how drift is prevented.
 
+Task command catalog pinning is an explicit exception. The task contract requires `command_catalog_object_id` as a pinned object reference so task validation can keep using the catalog object captured at task creation time; see [`tasks.md`](./tasks.md).
+
 ## Object File Records
 
 Object file records store metadata for bytes belonging to an object.

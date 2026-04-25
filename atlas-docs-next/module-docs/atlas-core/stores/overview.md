@@ -23,7 +23,7 @@ Atlas Core should have two persistence-facing store boundaries:
 
 ## Non-Stores
 
-The command catalog does not need its own store. The source catalog is checked-in JSON loaded at startup, then materialized through the object store.
+The command catalog does not need its own store. The source catalog is a version-controlled command catalog JSON file stored in the repository and loaded at application startup, then materialized through the object store.
 
 The live stream does not need its own durable store. It is live-only and should publish mutation events from service-layer behavior.
 

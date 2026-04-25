@@ -72,7 +72,8 @@ The terminal UI should be simple:
 
 - show the available actions as a selectable list
 - make the selected action obvious
-- require confirmation before destructive restart or shutdown
+- require typed confirmation before destructive restart or shutdown, such as `Type YES to continue`
+- support an explicit non-interactive confirmation flag such as `--yes` or `--confirm` for automation
 - print progress for each Docker step
 - show clear errors when Docker is unavailable or a step fails
 

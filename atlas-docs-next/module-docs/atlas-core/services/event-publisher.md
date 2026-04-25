@@ -6,7 +6,11 @@ API contract: [`../../../contracts/core-api/stream.md`](../../../contracts/core-
 
 ## Responsibilities
 
-- publish live create, update, and delete events after successful mutations
+- publish entity create, update, and delete events after successful entity mutations
+- publish observation create, update, and delete events after successful observation mutations
+- publish task create, update, and delete events after successful task mutations
+- publish object create, update, and delete events after successful object mutations
+- publish object events after successful object file upload or delete
 - support the live server-sent events stream
 - avoid durable event-log behavior
 - avoid replay requirements
@@ -16,7 +20,24 @@ API contract: [`../../../contracts/core-api/stream.md`](../../../contracts/core-
 
 The event publisher does not need a durable store.
 
-Services should call the event publisher after successful writes. If event publication fails, the service behavior should be defined later before implementation.
+Services should call the event publisher after successful writes.
+
+## Failure Policy
+
+Atlas Core should use commit-first, best-effort publishing.
+
+If a mutation commits successfully but event publication fails:
+
+- the original API request should still succeed
+- the failure should be logged with enough context to identify the missed event
+- the response should not expose a partial failure to the caller
+- no durable retry queue or dead-letter queue is required
+- no rollback or compensation is required
+- clients recover missed changes by performing a fresh read
+
+The event publisher should make a single in-process publish attempt. There is no exponential backoff or retry queue in the initial design.
+
+If a future implementation adds internal retries, events must carry a unique event ID so duplicate deliveries can be ignored by clients. Failed publications should be observable through logs at minimum; metrics or alerts can be added later if the runtime grows an observability system.
 
 ## Notes
 

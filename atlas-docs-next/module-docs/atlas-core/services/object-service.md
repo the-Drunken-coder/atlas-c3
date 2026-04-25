@@ -36,5 +36,5 @@ The system does not need migration or rollback machinery, but normal uploads sho
 
 Objects are the authoritative owners of relationship links to entities, observations, tasks, and system-owned records.
 
-The command catalog is materialized through the object service or object store during startup, but command catalog loading itself is bootstrap behavior.
+The command catalog is materialized through the object store as a normal object-backed payload during bootstrap. The object service may be used to access the resulting command catalog object, but loading the command catalog source is bootstrap behavior.
 

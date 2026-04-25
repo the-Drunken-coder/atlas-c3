@@ -50,7 +50,7 @@ A taskable entity that can be directed by the system. Examples include drones, r
 
 ### Track
 
-An entity representing something observed in the environment, such as a person, vehicle, aircraft, or other detected subject.
+The same concept as a system track in current ATLAS-C3 planning: an entity representing the system's authoritative current view of something observed in the environment, such as a person, vehicle, aircraft, or other detected subject. See also [System Track](#system-track).
 
 ### Geofeature
 
@@ -74,7 +74,7 @@ Evidence produced by an asset or sensor about something it detected or measured.
 
 ### System Track
 
-The system's authoritative current representation of a real-world subject after observation evidence has been interpreted or fused.
+The system's authoritative current representation of a real-world subject after observation evidence has been interpreted or fused. In these docs, "system track" and [Track](#track) refer to the same record concept unless a later fusion contract explicitly introduces another track category.
 
 ## Shared Data Concepts
 
