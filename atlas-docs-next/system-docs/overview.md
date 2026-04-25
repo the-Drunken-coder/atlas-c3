@@ -34,7 +34,7 @@ Atlas Core
    |
    +--> PostgreSQL
    |
-   +--> Object Storage
+   +--> Filesystem volume (object bytes)
 
 Assets interact with Atlas Core through the asset-side protocol chosen for the deployment.
 ```

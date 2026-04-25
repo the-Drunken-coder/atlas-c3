@@ -26,6 +26,7 @@ Detailed contracts:
 - [`observations.md`](./observations.md)
 - [`tasks.md`](./tasks.md)
 - [`objects.md`](./objects.md)
+- [`components/overview.md`](./components/overview.md)
 
 ## Shared Conventions
 
@@ -50,7 +51,7 @@ Entity types:
 
 Entities should share one record family rather than splitting assets, tracks, and geofeatures into unrelated tables. Type and subtype fields distinguish the kind of entity.
 
-Entity state may use components for structured state that changes over time. Component rules should be defined in component contracts rather than copied into every entity-related doc.
+Entity state may use components for structured state that changes over time. Component contracts are shared data-model docs for component shape, validation, applicability, and update rules; they belong under [`components/`](./components/overview.md) rather than being copied into every entity-related doc.
 
 Important entity relationships:
 
@@ -71,7 +72,7 @@ Observation state should support:
 
 - source asset identity
 - first observed timestamp
-- most recent observed time
+- most recent observed timestamp
 - kinematic evidence
 - classification evidence
 - identity evidence

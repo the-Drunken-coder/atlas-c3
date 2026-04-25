@@ -32,7 +32,7 @@ Entity JSON may contain:
 
 ```json
 {
-  "published_at": "RFC3339",
+  "published_at": "2026-01-01T00:00:00Z",
   "components": {},
   "extra": {}
 }
@@ -42,7 +42,7 @@ Entity JSON may contain:
 
 ## Component Direction
 
-Entity components should be documented in separate component contracts before implementation.
+Entity components should be documented in separate component contracts before implementation. The component contract index is [`components/overview.md`](./components/overview.md).
 
 Initial component areas from the old docs remain useful:
 

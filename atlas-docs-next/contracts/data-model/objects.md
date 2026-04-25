@@ -50,7 +50,7 @@ Owning records should not duplicate object references unless a later contract de
 
 | Field | Purpose |
 | --- | --- |
-| `file_id` | Creator-supplied ID, max 50 characters |
+| `file_id` | Creator-supplied globally unique ID, max 50 characters |
 | `object_id` | Parent object ID |
 | `path` | Logical storage path under the managed storage root |
 | `content_type` | MIME type or internal content type |
@@ -60,6 +60,8 @@ Owning records should not duplicate object references unless a later contract de
 | `updated_at` | Core-updated timestamp |
 
 The filesystem volume owns the bytes. PostgreSQL owns metadata and logical paths.
+
+Object file IDs are globally unique even though file API paths are nested under objects. The nested path keeps the API clear about parent ownership; the database identity remains `file_id`.
 
 File bytes should not be mutated in place. A byte-content change should be represented by deleting and uploading an object file, or by a later explicit replace operation that updates metadata and preserves event behavior.
 
@@ -94,12 +96,21 @@ API/runtime validation should enforce:
 
 Database constraints should enforce:
 
+Objects:
+
 - primary key on `object_id`
 - non-null `type`
-- primary key on `file_id`
-- object file parent relationship to object
 - non-null `json`
+
+Object files:
+
+- primary key on `file_id`
+- non-null `object_id`
+- object file parent relationship to object
+- non-null `path`
 - unique logical file path
+- non-null `content_type`
+- non-null `size_bytes`
 
 ## Delete Behavior
 

@@ -18,7 +18,7 @@ Error responses should use a consistent JSON envelope:
   "message": "string",
   "error_code": "string",
   "error_id": "string",
-  "timestamp": "RFC3339",
+  "timestamp": "2026-01-01T00:00:00Z",
   "path": "string",
   "details": {}
 }
