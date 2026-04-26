@@ -168,6 +168,9 @@ func ValidateID(name, value string) *FieldError {
 	if !idPattern.MatchString(value) {
 		return &FieldError{Field: name, Code: "invalid_value", Message: fmt.Sprintf("%s contains unsupported characters", name)}
 	}
+	if strings.Trim(value, ".") == "" {
+		return &FieldError{Field: name, Code: "invalid_value", Message: fmt.Sprintf("%s must contain non-dot characters", name)}
+	}
 	return nil
 }
 

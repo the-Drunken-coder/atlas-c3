@@ -1,0 +1,27 @@
+# golangci-lint configuration for the atlas-core Go module.
+#
+# IMPORTANT: this module lives at `atlas-core/go.mod` (it is NOT a top-level
+# module of the repository). Run golangci-lint from this directory, e.g.:
+#
+#     cd atlas-core && golangci-lint run ./...
+#
+# Running from the repository root with `./...` will fail with
+# "directory prefix . does not contain main module or its selected dependencies"
+# because there is no go.mod at the repo root.
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+issues:
+  exclude-dirs:
+    - data-fusion/harness/runner
+    - tools

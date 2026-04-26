@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -182,9 +183,7 @@ func (s *Store) DeleteObservation(ctx context.Context, id string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	for _, path := range paths {
-		_ = s.files.Delete(path)
-	}
+	s.postCommitObjectFilePathsDelete("observation", id, paths)
 	return nil
 }
 
@@ -329,12 +328,29 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	for _, path := range paths {
-		_ = s.files.Delete(path)
-	}
+	s.postCommitObjectFilePathsDelete("object", id, paths)
 	return nil
 }
 
+// postCommitObjectFilePathsDelete runs after the database transaction has committed. Disk
+// cleanup is best-effort: the delete already returned success to the caller; we log and
+// mark a mismatch if bytes remain so readiness reflects an operational problem.
+// This is not crash-proof cross-process atomicity: if the process dies after commit, files
+// may need a separate sweeper.
+func (s *Store) postCommitObjectFilePathsDelete(contextLabel, resourceID string, paths []string) {
+	for _, path := range paths {
+		if err := s.files.Delete(path); err != nil {
+			slog.Error("post-commit file delete failed after database delete; stored metadata no longer has this object",
+				"context", contextLabel,
+				"path", path,
+				"resource_id", resourceID,
+				"err", err,
+			)
+			s.files.MarkMismatch("post-delete file cleanup failed")
+			return
+		}
+	}
+}
 func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {
 	stagedPath, size, detectedType, err := s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
 	if err != nil {
@@ -383,29 +399,44 @@ func (s *Store) GetObjectFile(ctx context.Context, objectID, fileID string) (mod
 	return file, nil
 }
 
+// AppendObjectFile appends to the on-disk file after locking the row, then updates
+// metadata. If the database update or commit fails after a successful write, the file
+// is truncated to the pre-append size (best-effort; not full cross-media crash atomicity).
 func (s *Store) AppendObjectFile(ctx context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (model.ObjectFile, error) {
-	file, err := s.GetObjectFile(ctx, objectID, fileID)
-	if err != nil {
-		return model.ObjectFile{}, err
-	}
-	newSize, err := s.files.Append(file.Path, reader, chooseLimit(maxBytes, s.maxUpload))
-	if err != nil {
-		return model.ObjectFile{}, err
-	}
-	now := time.Now().UTC()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
 	defer tx.Rollback(ctx)
+	row := tx.QueryRow(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files WHERE file_id=$1 AND object_id=$2 FOR UPDATE`, fileID, objectID)
+	file, err := scanObjectFile(row)
+	if err != nil {
+		return model.ObjectFile{}, mapNotFound(err, "object_file", fileID)
+	}
+	preMeta := file.SizeBytes
+	newSize, err := s.files.Append(file.Path, reader, chooseLimit(maxBytes, s.maxUpload))
+	if err != nil {
+		return model.ObjectFile{}, err
+	}
+	now := time.Now().UTC()
 	if _, err := tx.Exec(ctx, `UPDATE object_files SET size_bytes=$3, updated_at=$4 WHERE file_id=$1 AND object_id=$2`, fileID, objectID, newSize, now); err != nil {
+		if tr := s.files.TruncateBack(file.Path, preMeta); tr != nil {
+			s.files.MarkMismatch("object file append: database update failed; rollback truncate also failed: " + tr.Error())
+		}
 		return model.ObjectFile{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE objects SET updated_at=$2 WHERE object_id=$1`, objectID, now); err != nil {
+		if tr := s.files.TruncateBack(file.Path, preMeta); tr != nil {
+			s.files.MarkMismatch("object file append: object update failed; rollback truncate also failed: " + tr.Error())
+		}
 		return model.ObjectFile{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		s.files.MarkMismatch("object file bytes appended but metadata update failed")
+		if tr := s.files.TruncateBack(file.Path, preMeta); tr != nil {
+			s.files.MarkMismatch("object file append: commit failed; rollback truncate also failed: " + tr.Error())
+		} else {
+			s.files.MarkMismatch("object file bytes appended but database commit failed")
+		}
 		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{"object_id": objectID, "file_id": fileID})
 	}
 	return s.GetObjectFile(ctx, objectID, fileID)

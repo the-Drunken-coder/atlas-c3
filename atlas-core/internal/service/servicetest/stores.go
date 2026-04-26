@@ -284,6 +284,13 @@ func (m *MemoryStore) ListObjects(_ context.Context, filter store.ObjectListFilt
 	})
 	return paginate(items, pagination), len(items), nil
 }
+func memUploadLimit(requested int64) int64 {
+	if requested > 0 {
+		return requested
+	}
+	return 16 * 1024 * 1024
+}
+
 func (m *MemoryStore) UpdateObject(_ context.Context, item model.Object) (model.Object, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -317,7 +324,18 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if _, ok := m.ObjectFiles[input.File.FileID]; ok {
 		return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
 	}
-	bytesValue, _ := io.ReadAll(input.Reader)
+	limit := memUploadLimit(input.MaxBytes)
+	lr := &io.LimitedReader{R: input.Reader, N: limit + 1}
+	bytesValue, err := io.ReadAll(lr)
+	if err != nil {
+		return model.ObjectFile{}, err
+	}
+	if int64(len(bytesValue)) == 0 {
+		return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
+	}
+	if int64(len(bytesValue)) > limit {
+		return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
+	}
 	file := input.File
 	file.Path = "objects/" + file.ObjectID + "/" + file.FileID
 	file.SizeBytes = int64(len(bytesValue))
@@ -337,16 +355,24 @@ func (m *MemoryStore) GetObjectFile(_ context.Context, objectID, fileID string) 
 	}
 	return file, nil
 }
-func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID string, reader io.Reader, _ int64) (model.ObjectFile, error) {
+func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (model.ObjectFile, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	file, ok := m.ObjectFiles[fileID]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, model.NotFound("object_file", fileID)
 	}
-	bytesValue, _ := io.ReadAll(reader)
+	limit := memUploadLimit(maxBytes)
+	lr := &io.LimitedReader{R: reader, N: limit + 1}
+	bytesValue, err := io.ReadAll(lr)
+	if err != nil {
+		return model.ObjectFile{}, err
+	}
 	if len(bytesValue) == 0 {
 		return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
+	}
+	if int64(len(bytesValue)) > limit {
+		return model.ObjectFile{}, model.PayloadTooLarge("append exceeds configured limit")
 	}
 	m.FileBytes[fileID] = append(m.FileBytes[fileID], bytesValue...)
 	file.SizeBytes = int64(len(m.FileBytes[fileID]))

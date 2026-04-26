@@ -28,10 +28,26 @@ type CoreError struct {
 	ErrorCode  string
 	Message    string
 	Details    map[string]any
+	// cause is the underlying error, kept server-side only. It is never
+	// serialized into the API response — the response contains a generated
+	// error_id which the router logs alongside the cause for correlation.
+	cause error
 }
 
 func (e *CoreError) Error() string {
 	return fmt.Sprintf("%s: %s", e.ErrorCode, e.Message)
+}
+
+// Cause returns the underlying error captured server-side. Callers (the HTTP
+// router) use this to log the real failure correlated with the response
+// error_id, without leaking it to API consumers.
+func (e *CoreError) Cause() error {
+	return e.cause
+}
+
+// Unwrap exposes the cause for errors.Is / errors.As.
+func (e *CoreError) Unwrap() error {
+	return e.cause
 }
 
 func NewCoreError(status int, code, message string, details map[string]any) *CoreError {
@@ -63,10 +79,13 @@ func NotFound(resourceType, resourceID string) *CoreError {
 }
 
 func Conflict(resourceType, resourceID, reason string, extra map[string]any) *CoreError {
-	details := map[string]any{"resource_type": resourceType, "resource_id": resourceID, "reason": reason}
+	details := map[string]any{}
 	for k, v := range extra {
 		details[k] = v
 	}
+	details["resource_type"] = resourceType
+	details["resource_id"] = resourceID
+	details["reason"] = reason
 	return NewCoreError(http.StatusConflict, "conflict", "resource conflict", details)
 }
 
@@ -87,11 +106,9 @@ func CatalogUnavailable(message string, details map[string]any) *CoreError {
 }
 
 func InternalError(message string, err error) *CoreError {
-	details := map[string]any{}
-	if err != nil {
-		details["cause"] = err.Error()
-	}
-	return NewCoreError(http.StatusInternalServerError, "internal_error", message, details)
+	ce := NewCoreError(http.StatusInternalServerError, "internal_error", message, nil)
+	ce.cause = err
+	return ce
 }
 
 func IsCoreError(err error) (*CoreError, bool) {

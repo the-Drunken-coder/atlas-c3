@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,7 +34,7 @@ func main() {
 	defer stop()
 	atlas, err := app.Start(ctx, rootDir, logger)
 	if err != nil {
-		logger.Component("startup").ErrorContext(ctx, "startup failed")
+		logger.Component("startup").ErrorContext(ctx, "startup failed", slog.String("error", err.Error()))
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -45,7 +47,8 @@ func main() {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 	logger.Component("startup").InfoContext(ctx, "atlas core listening")
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		atlas.Close()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

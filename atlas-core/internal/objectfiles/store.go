@@ -143,9 +143,7 @@ func (s *Store) Delete(logicalPath string) error {
 	if err != nil {
 		return err
 	}
-	if errors.Is(os.Remove(target), os.ErrNotExist) {
-		return nil
-	} else if err != nil {
+	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -168,6 +166,17 @@ func (s *Store) Open(logicalPath string) (io.ReadCloser, os.FileInfo, error) {
 	return file, stat, nil
 }
 
+func (s *Store) TruncateBack(logicalPath string, size int64) error {
+	if size < 0 {
+		return fmt.Errorf("invalid truncate size %d", size)
+	}
+	target, err := s.AbsolutePath(logicalPath)
+	if err != nil {
+		return err
+	}
+	return os.Truncate(target, size)
+}
+
 func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (int64, error) {
 	target, err := s.AbsolutePath(logicalPath)
 	if err != nil {
@@ -176,30 +185,53 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (in
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return 0, err
 	}
+	preStat, err := os.Stat(target)
+	if err != nil {
+		return 0, err
+	}
+	preSize := preStat.Size()
 	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
 	limiter := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	written, err := io.Copy(file, limiter)
 	if err != nil {
+		_ = file.Close()
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+		}
 		return 0, err
 	}
 	if written == 0 {
+		_ = file.Close()
 		return 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
 	}
 	if written > maxBytes {
+		_ = file.Close()
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return 0, fmt.Errorf("append payload too large: rollback truncate failed: %v", tr)
+		}
 		return 0, model.PayloadTooLarge("append exceeds configured limit")
 	}
 	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+		}
 		return 0, err
 	}
-	stat, err := file.Stat()
+	if err := file.Close(); err != nil {
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+		}
+		return 0, err
+	}
+	st, err := os.Stat(target)
 	if err != nil {
 		return 0, err
 	}
-	return stat.Size(), nil
+	return st.Size(), nil
 }
 
 func normalizeContentType(value string) string {
