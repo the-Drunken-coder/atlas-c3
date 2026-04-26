@@ -1,9 +1,9 @@
 package postgres
 
 import (
-    "context"
+	"context"
 
-    "github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const schemaSQL = `
@@ -71,6 +71,6 @@ CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_a
 `
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
-    _, err := pool.Exec(ctx, schemaSQL)
-    return err
+	_, err := pool.Exec(ctx, schemaSQL)
+	return err
 }

@@ -57,3 +57,7 @@ Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, us
 - Strong success criteria enable independent execution. Weak criteria require clarification.
 
 These guidelines are working if they produce fewer unnecessary diff changes, fewer rewrites due to overcomplication, and clarifying questions before implementation instead of after mistakes.
+
+## Project Notes
+
+- The repository root is still the workspace/docs root; the executable Atlas Core implementation now lives under `/atlas-core`, matching the build plan's implementation root.
