@@ -10,7 +10,7 @@ API contract: [`../../../contracts/core-api/stream.md`](../../../contracts/core-
 - publish observation create, update, and delete events after successful observation mutations
 - publish task create, update, and delete events after successful task mutations
 - publish object create, update, and delete events after successful object mutations
-- publish object events after successful object file upload or delete
+- publish object events after successful object file upload, append, or delete
 - support the live server-sent events stream
 - avoid durable event-log behavior
 - avoid replay requirements
@@ -44,4 +44,3 @@ If a future implementation adds internal retries, events must carry a unique eve
 The stream is live-only. Clients recover missed events by performing fresh reads.
 
 Exact event envelope, event types, and payload rules belong in the stream API contract before implementation.
-

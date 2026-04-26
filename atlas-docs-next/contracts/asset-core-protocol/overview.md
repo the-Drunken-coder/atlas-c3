@@ -84,6 +84,7 @@ These rules are intentionally simple for trusted clients. They are not a substit
 **Object file uploads**
 
 - Reusing the same `file_id` for a second upload should fail with **`409`** (or another explicit client error) unless a later contract adds a deliberate replace operation. Clients must not assume silent overwrite.
+- Object file append is not intrinsically idempotent. SDK helpers that append sighting JSONL after an ambiguous network failure should reconcile by reading current observation/file state rather than blindly repeating the same append.
 
 **Observations and tasks**
 

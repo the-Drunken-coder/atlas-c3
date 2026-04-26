@@ -57,9 +57,23 @@ Deferred until the task status model and API expand:
 - start
 - update progress
 
-Observation submission should support creating an observation alone and submitting an observation with related files.
+Observation submission should support creating an observation alone, submitting related files, and reporting sightings.
+
+Expected observation helper:
+
+- `observations.reportSighting(observationId, sighting, options?)` - validates the sighting shape, fills `observed_at` when omitted, preserves caller-provided timestamps, appends one JSON Lines sighting entry to the observation-owned sighting history object file, and patches the observation `json.latest_sighting` plus `json.sightings_object_id`.
+
+The helper should create or use the observation-owned sighting history object/file. It must use the generic object-file append API rather than requiring an observation-specific Core append endpoint. If file bytes are part of the reported evidence, the SDK should store them through normal observation-owned objects and report a separate `file` sighting that references the object and file IDs.
 
 Object and file helpers should hide multipart upload details from SDK callers.
+
+Track-oriented helpers may live under `entities` unless a later SDK design introduces a separate `tracks` convenience namespace. They should remain wrappers over normal entity, object, and object file APIs.
+
+Expected track helper:
+
+- `getTrackFusionProvenance(track_id)` - reads the track entity, resolves `json.components.fusion_summary.provenance_object_id`, reads the matching object and JSON object file, parses the file content, and returns the provenance payload.
+
+This helper should hide object/file lookup details from SDK callers while preserving Core's generic object API.
 
 ## Asset Helper Rules
 

@@ -50,6 +50,7 @@ Component fields should only be promoted out of JSON when repeated querying or i
 | `sensor_refs` | assets, tracks | [`sensor_refs.md`](./sensor_refs.md) |
 | `status` | assets, tracks, geofeatures | [`status.md`](./status.md) |
 | `supported_commands` | assets | [`supported_commands.md`](./supported_commands.md) |
+| `fusion_summary` | tracks | [`fusion_summary.md`](./fusion_summary.md) |
 
 ## Asset Validity
 

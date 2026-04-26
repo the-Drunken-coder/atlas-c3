@@ -7,6 +7,9 @@ API contract: [`../../../contracts/core-api/observations.md`](../../../contracts
 ## Responsibilities
 
 - validate observation create, patch, and delete requests
+- validate `source_asset_id` references an entity whose `type` is `asset`
+- validate observation JSON shape, including required `json.state`
+- validate `json.latest_sighting` against the active sighting catalog when present
 - require caller-supplied `observation_id` on create
 - enforce first-class observation behavior
 - coordinate observation persistence through the regular record store
@@ -17,11 +20,10 @@ API contract: [`../../../contracts/core-api/observations.md`](../../../contracts
 
 Uses [`../stores/regular-record-store.md`](../stores/regular-record-store.md).
 
-Observation files are handled through objects. The observation service should not own file upload, file metadata, or file byte access.
+Observation files and sighting history JSONL are handled through objects. The observation service should not own file upload, append, file metadata, or file byte access.
 
 ## Notes
 
 There is no finalize or close endpoint. Observation lifecycle is represented through observation state updates.
 
 Observation-related objects are queried through the object API using `owner_type=observation` and `owner_id={observation_id}`.
-

@@ -76,9 +76,12 @@ Planned paths:
 - `PATCH /objects/{object_id}`
 - `DELETE /objects/{object_id}`
 - `POST /objects/{object_id}/files`
+- `POST /objects/{object_id}/files/{file_id}/append`
 - `GET /objects/{object_id}/files/{file_id}`
 - `GET /objects/{object_id}/files/{file_id}/content`
 - `DELETE /objects/{object_id}/files/{file_id}`
+
+Append is the generic object-file operation used for append-only payloads such as observation sighting history JSON Lines. It is not nested under observation endpoints.
 
 `GET /objects` should support filtering by owning or related record:
 
@@ -110,4 +113,3 @@ The stream uses server-sent events. It is live-only and does not replay missed h
 The command catalog does not have command-catalog-specific endpoints.
 
 The active command catalog is materialized as an object at startup. Clients discover the active command catalog object ID from `GET /`, then use the object and file endpoints to read it.
-

@@ -98,6 +98,10 @@ atlas-core/
       validator.go
       materializer.go
       active_catalog.go
+    sightingcatalog/
+      loader.go
+      validator.go
+      active_catalog.go
     events/
       publisher.go
       sse.go
@@ -107,6 +111,19 @@ atlas-core/
       logging.go
   command-catalog/
     catalog.json
+  sighting-catalog/
+    catalog.json
+  data-fusion/
+    harness/
+      Dockerfile
+      docker-compose.fragment.yml
+      runner/
+      config/
+    stacks/
+      baseline/
+    tests/
+      fixtures/
+      scenarios/
   tools/
     atlas-core-cli/
       main.py
@@ -152,6 +169,31 @@ Owns the checked-in command catalog JSON source.
 Atlas Core loads this file at startup, validates it, materializes it as an object-backed payload, and keeps the active catalog available for task validation.
 
 Command catalog behavior is defined in [`../../contracts/data-model/command-catalog/overview.md`](../../contracts/data-model/command-catalog/overview.md).
+
+### `sighting-catalog/`
+
+Owns the checked-in sighting catalog JSON source.
+
+Atlas Core loads this file at startup, validates it, and keeps the active catalog available for observation and sighting validation. Unlike the command catalog, the sighting catalog is not materialized as an object and is not exposed through a public Core API.
+
+Sighting catalog behavior is defined in [`../../contracts/data-model/sighting-catalog.md`](../../contracts/data-model/sighting-catalog.md).
+
+### `data-fusion/`
+
+Owns the data fusion worker harness and selectable fusion stacks.
+
+Data fusion remains outside the Atlas Core process and must communicate with Atlas Core through the Core API or SDK. This folder may live in the Atlas Core implementation repo so local development, Docker wiring, and tests are easy to run together, but fusion algorithm code must not be imported into the Core server process.
+
+Expected shape:
+
+- `harness/` - Docker/container runner, startup wiring, shared worker runtime, and stack selection.
+- `harness/config/` - configuration that selects the active fusion stack.
+- `stacks/{stack_name}/` - one complete fusion algorithm/behavior stack per folder.
+- `tests/` - fusion harness tests, fixtures, and scenarios shared across stacks.
+
+Only one stack should be active at a time. Switching stacks should be a configuration change, not a Core code change. The first implementation should include one `baseline` stack and keep test harness code outside individual stack folders unless a test is truly stack-private.
+
+Data fusion boundaries are defined in [`data-fusion.md`](./data-fusion.md).
 
 ### `tools/atlas-core-cli/`
 
@@ -205,6 +247,8 @@ Configuration should cover:
 - PostgreSQL connection details
 - object file storage root
 - command catalog file path
+- sighting catalog file path
+- active data fusion stack name when the optional worker is enabled
 - CORS defaults for the Command Interface
 - logging settings
 
@@ -217,6 +261,8 @@ Expected environment variables:
 - `ATLAS_CORE_DATABASE_URL`
 - `ATLAS_CORE_OBJECT_STORAGE_ROOT`
 - `ATLAS_CORE_COMMAND_CATALOG_PATH`
+- `ATLAS_CORE_SIGHTING_CATALOG_PATH`
+- `ATLAS_DATA_FUSION_STACK`
 - `ATLAS_CORE_ALLOWED_ORIGINS`
 - `ATLAS_CORE_LOG_LEVEL`
 
@@ -280,7 +326,7 @@ Keep this package boring. It should not become a service layer or persistence la
 Expected model files:
 
 - `entity.go` - entity and entity component containers
-- `observation.go` - observation record and evidence container
+- `observation.go` - observation record and current sighting summary
 - `task.go` - task record, status, command, progress, result, and error containers
 - `object.go` - object and object file metadata
 - `command_catalog.go` - parsed catalog definitions used by task validation
@@ -413,6 +459,19 @@ Responsibilities:
 
 The command catalog does not need a store or service package of its own.
 
+### `internal/sightingcatalog/`
+
+Owns sighting catalog bootstrap behavior.
+
+Responsibilities:
+
+- load checked-in sighting catalog JSON
+- validate catalog structure
+- expose the active in-memory catalog for observation validation
+- fail startup/readiness when the catalog is invalid
+
+The sighting catalog does not need a store, service package, object materialization path, or public API endpoint.
+
 ### `internal/events/`
 
 Owns live change publication and SSE support.
@@ -454,11 +513,13 @@ Recommended order:
 5. Implement PostgreSQL stores for entities, observations, tasks, objects, object files, and full-query support.
 6. Implement object file byte storage and path safety.
 7. Implement command catalog loading, validation, active catalog state, and startup materialization through the object store.
-8. Implement services with test-only store fakes and event publisher recorders.
-9. Implement HTTP DTOs, handlers, shared error serialization, and router wiring.
-10. Implement in-process event publishing and SSE stream handling.
-11. Implement Dockerfile, Docker Compose, `.env.example`, and the Python lifecycle CLI.
-12. Add integration tests that run against real PostgreSQL and a temporary object file root.
+8. Implement sighting catalog loading, validation, and active in-memory catalog state.
+9. Implement services with test-only store fakes and event publisher recorders.
+10. Implement HTTP DTOs, handlers, shared error serialization, and router wiring.
+11. Implement in-process event publishing and SSE stream handling.
+12. Implement Dockerfile, Docker Compose, `.env.example`, and the Python lifecycle CLI.
+13. Add the optional data fusion harness and baseline stack wiring.
+14. Add integration tests that run against real PostgreSQL and a temporary object file root.
 
 This order keeps most behavior testable before the HTTP surface is complete and avoids treating Docker or the CLI as the first proof that Core works.
 
@@ -473,7 +534,9 @@ Expected test areas:
 - PostgreSQL store behavior
 - object file path safety
 - command catalog validation and materialization
+- sighting catalog validation
 - SSE event publication behavior
+- data fusion harness stack selection
 - `GET /queries/full` snapshot assembly
 - readiness behavior when PostgreSQL or object file storage is unavailable
 
@@ -484,7 +547,9 @@ Expected test file placement:
 - store integration tests next to `internal/postgres` files
 - object file tests next to `internal/objectfiles` files
 - catalog tests next to `internal/catalog` files
+- sighting catalog tests next to `internal/sightingcatalog` files
 - event publisher tests next to `internal/events` files
+- fusion harness tests under `data-fusion/tests`
 - CLI tests next to `tools/atlas-core-cli` files if the CLI grows enough logic to justify them
 
 Integration tests may use real PostgreSQL and a temporary filesystem root. Mocking data is for tests only and should not create fake dev/prod paths.
@@ -502,6 +567,6 @@ The implementation structure should not add:
 - a UI backend
 - auth middleware
 - durable asset offline queues
-- data fusion algorithm implementation files in the Atlas Core process
+- data fusion algorithm implementation files in the Atlas Core server process
 
-Data fusion runs as a separate worker boundary when present; see [`data-fusion.md`](./data-fusion.md).
+Data fusion runs as a separate worker boundary when present. Algorithm stacks may live under the top-level `data-fusion/stacks/` folder for local development and Docker packaging, but they must not become packages imported by the Core server process. See [`data-fusion.md`](./data-fusion.md).

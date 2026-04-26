@@ -98,7 +98,7 @@ Global PATCH rules:
 - Promoted fields update only when explicitly present in the request body.
 - `json` updates replace the provided named top-level JSON sections; they do not deep-merge arbitrary nested objects.
 - `json.components.<name>` updates replace that named component as a whole. They do not recursively merge into the existing component.
-- Observation `json.evidence.<name>` sections follow the same named-section replacement rule, but the inner evidence shapes remain deferred to the observation evidence contract.
+- Observation named JSON sections follow the same named-section replacement rule. For example, replacing `json.latest_sighting` replaces that sighting as a whole and does not deep-merge into the existing object.
 - Updating a record should advance that record's `updated_at`.
 - A PATCH that makes no material change may return `200` with the current resource.
 

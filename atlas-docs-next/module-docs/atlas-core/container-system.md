@@ -71,6 +71,8 @@ Responsibilities:
 
 The worker should not use PostgreSQL as an integration surface or mutate object file bytes. Atlas Core remains the source of truth.
 
+The worker should be built from the data fusion harness and one configured fusion stack. The active stack should be selected through configuration, such as `ATLAS_DATA_FUSION_STACK=baseline`, so alternate fusion approaches can be tested by adding stack folders rather than changing Atlas Core.
+
 ## Startup Flow
 
 At a high level, startup should happen in this order:

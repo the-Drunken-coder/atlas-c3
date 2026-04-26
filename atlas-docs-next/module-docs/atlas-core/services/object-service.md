@@ -12,6 +12,7 @@ API contract: [`../../../contracts/core-api/objects.md`](../../../contracts/core
 - list objects by `owner_type` and `owner_id`
 - coordinate object metadata through the object store
 - coordinate object file uploads, metadata, byte storage, streaming, and deletion
+- coordinate object file append for append-only payloads such as observation sighting history JSONL
 - require caller-supplied `file_id` for object file upload
 - publish object mutation events after successful writes
 
@@ -32,9 +33,20 @@ File upload must coordinate:
 
 The system does not need migration or rollback machinery, but normal uploads should avoid leaving obvious contradictory metadata and bytes.
 
+## File Append Coordination
+
+File append must coordinate:
+
+- object and file existence
+- file parent ownership validation
+- raw byte body validation
+- byte append to the filesystem volume
+- file `size_bytes` and `updated_at` metadata updates
+- parent object `updated_at` update
+- error cleanup or storage error reporting when a normal runtime step fails
+
 ## Notes
 
 Objects are the authoritative owners of relationship links to entities, observations, tasks, and system-owned records.
 
 The command catalog is materialized through the object store as a normal object-backed payload during bootstrap. The object service may be used to access the resulting command catalog object, but loading the command catalog source is bootstrap behavior.
-

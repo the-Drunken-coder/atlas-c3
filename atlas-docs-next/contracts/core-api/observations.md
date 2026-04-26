@@ -1,8 +1,8 @@
 # Observations API
 
-Observation endpoints manage first-class sensor evidence records.
+Observation endpoints manage first-class source-owned evidence records.
 
-Observation record ownership is defined in [`../data-model/observations.md`](../data-model/observations.md), and the first-class observation decision is recorded in [`../../decisions/0001-first-class-observations.md`](../../decisions/0001-first-class-observations.md). Shared API behavior is defined in [`conventions.md`](./conventions.md). Error codes are defined in [`errors.md`](./errors.md).
+Observation record ownership is defined in [`../data-model/observations.md`](../data-model/observations.md), sighting payloads are defined in [`../data-model/sighting-catalog.md`](../data-model/sighting-catalog.md), and the first-class observation decision is recorded in [`../../decisions/0001-first-class-observations.md`](../../decisions/0001-first-class-observations.md). Shared API behavior is defined in [`conventions.md`](./conventions.md). Error codes are defined in [`errors.md`](./errors.md).
 
 ## Resource Shape
 
@@ -10,16 +10,27 @@ Observation record ownership is defined in [`../data-model/observations.md`](../
 {
   "observation_id": "obs-001",
   "source_asset_id": "asset-001",
-  "first_observed_at": "2026-01-01T00:00:00Z",
-  "last_observed_at": "2026-01-01T00:00:10Z",
   "json": {
-    "confidence": 0.85,
-    "evidence": {
-      "kinematics": {},
-      "classification": {},
-      "identity": {},
-      "uncertainty": {}
+    "state": "active",
+    "latest_sighting": {
+      "observed_at": "2026-01-01T00:00:10Z",
+      "kind": "line_of_sight",
+      "data": {
+        "observer_latitude": 40.7128,
+        "observer_longitude": -74.006,
+        "observer_altitude_m": 35,
+        "azimuth": {
+          "deg": 42.8,
+          "inaccuracy": "+-1.5"
+        },
+        "elevation": {
+          "deg": 8.7,
+          "inaccuracy": "+-1.0"
+        }
+      },
+      "extra": {}
     },
+    "sightings_object_id": "obj-obs-001-sightings",
     "extra": {}
   },
   "created_at": "2026-01-01T00:00:00Z",
@@ -27,7 +38,7 @@ Observation record ownership is defined in [`../data-model/observations.md`](../
 }
 ```
 
-The inner shapes of `json.evidence` sections are intentionally deferred. This API still defines how those named sections are created, replaced, and returned.
+Observation records do not include asset-local subject or tracker references by default. Assets use `observation_id` to update the same observation over time. Sighting history is stored as append-only JSON Lines in an observation-owned object file; the observation resource stores only current summary state.
 
 ## Endpoints
 
@@ -46,10 +57,9 @@ The inner shapes of `json.evidence` sections are intentionally deferred. This AP
 Supported filters:
 
 - `source_asset_id`
-- `observed_after` filters records where `last_observed_at` is greater than or equal to the RFC 3339 value.
 - `updated_after` filters records where `updated_at` is greater than or equal to the RFC 3339 value.
 
-Default order: `last_observed_at` descending, then `observation_id` ascending.
+Default order: `updated_at` descending, then `observation_id` ascending.
 
 ## Create Observation
 
@@ -59,20 +69,20 @@ Request body:
 {
   "observation_id": "obs-001",
   "source_asset_id": "asset-001",
-  "first_observed_at": "2026-01-01T00:00:00Z",
-  "last_observed_at": "2026-01-01T00:00:10Z",
   "json": {
-    "evidence": {},
+    "state": "active",
     "extra": {}
   }
 }
 ```
 
-Required fields: `observation_id`, `source_asset_id`, `first_observed_at`, `last_observed_at`, `json`.
+Required fields: `observation_id`, `source_asset_id`, `json.state`.
+
+`json.state` must be one of `active`, `inactive`, or `ended`. `json.latest_sighting` and `json.sightings_object_id` may be absent until the first sighting is reported. When `json.latest_sighting` is present, it must validate against the active sighting catalog.
 
 Failures:
 
-- `400 validation_failed` for missing required fields, invalid timestamps, `last_observed_at` before `first_observed_at`, unknown top-level fields, or non-asset source entities.
+- `400 validation_failed` for missing required fields, invalid state, invalid sighting shape, unknown top-level fields, or non-asset source entities.
 - `404 not_found` when `source_asset_id` does not exist.
 - `409 conflict` when `observation_id` already exists.
 
@@ -84,21 +94,18 @@ Failures:
 
 Mutable fields:
 
-- `last_observed_at`
 - named top-level sections under `json`
-- named evidence sections under `json.evidence`
 
 Immutable fields:
 
 - `observation_id`
 - `source_asset_id`
-- `first_observed_at`
 - `created_at`
 - `updated_at`
 
-PATCH follows named-section replacement rules. Replacing `json.evidence.classification` replaces that section as a whole and does not deep-merge into the existing object.
+PATCH follows named-section replacement rules. Replacing `json.latest_sighting` replaces that sighting object as a whole and does not deep-merge into the existing object. Replacing `json.state` must use one of the allowed observation states. Replacing `json.latest_sighting` must validate against the active sighting catalog.
 
-There is no finalize or close endpoint. If an asset stops updating an observation, the last state remains available until deleted or reset.
+There is no finalize or close endpoint. Observation lifecycle is represented by updating `json.state`; if an asset stops updating an observation, the last state remains available until deleted or reset.
 
 ## Delete Observation
 

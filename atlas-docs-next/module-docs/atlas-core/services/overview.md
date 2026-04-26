@@ -33,6 +33,12 @@ At startup, Atlas Core should load the checked-in command catalog JSON, material
 
 The command catalog contract is [`../../../contracts/data-model/command-catalog/overview.md`](../../../contracts/data-model/command-catalog/overview.md).
 
+Sighting catalog loading is also startup/bootstrap behavior, not a service.
+
+At startup, Atlas Core should load and validate the checked-in sighting catalog JSON, then keep the active catalog available for observation and sighting validation. It should not materialize the sighting catalog as an object or expose it through a public API.
+
+The sighting catalog contract is [`../../../contracts/data-model/sighting-catalog.md`](../../../contracts/data-model/sighting-catalog.md).
+
 ## Handler Relationship
 
 HTTP handlers should:
@@ -47,4 +53,3 @@ Handlers should not own persistence logic, lifecycle rules, command validation, 
 ## Store Relationship
 
 Stores provide persistence capabilities. Services decide when and how those capabilities are used to satisfy API behavior.
-

@@ -38,6 +38,7 @@ Disconnected Core, stale stream state, and questionable local state should be ha
 
 The following details are intentionally deferred until Command Interface planning starts in depth:
 
+- exact folder and file structure
 - primary operator screens
 - navigation structure
 - detailed task authoring workflow

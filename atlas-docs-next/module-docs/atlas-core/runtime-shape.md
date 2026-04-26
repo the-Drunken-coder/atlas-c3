@@ -88,8 +88,9 @@ After containers start, Atlas Core itself should:
 3. Ensure required database structures exist.
 4. Verify object file storage is available.
 5. Materialize startup records such as the command catalog.
-6. Start the HTTP server.
-7. Report readiness only after required dependencies are usable.
+6. Load and validate startup catalogs that are not materialized as objects, such as the sighting catalog.
+7. Start the HTTP server.
+8. Report readiness only after required dependencies and startup catalogs are usable.
 
 ## Non-Goals
 
@@ -99,4 +100,3 @@ The local CLI should not become:
 - a migration runner
 - a data backup tool
 - a production deployment system
-

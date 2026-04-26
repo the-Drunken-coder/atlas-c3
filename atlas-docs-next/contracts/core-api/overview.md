@@ -36,7 +36,7 @@ The API should stay simple and resource-oriented.
 Expected direction:
 
 - JSON for normal request and response bodies
-- multipart upload for object file uploads
+- multipart upload for object file uploads and raw byte append for existing object files
 - raw byte streaming for object file download and view responses
 - simple pagination for list endpoints
 - clear error envelopes

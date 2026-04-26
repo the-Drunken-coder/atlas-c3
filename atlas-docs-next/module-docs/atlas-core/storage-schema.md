@@ -39,8 +39,6 @@ Indexes:
 | --- | --- | --- |
 | `observation_id` | `text` | Primary key, length 1-50 |
 | `source_asset_id` | `text` | Not null, references `entities(entity_id)` |
-| `first_observed_at` | `timestamptz` | Not null |
-| `last_observed_at` | `timestamptz` | Not null, greater than or equal to `first_observed_at` |
 | `json` | `jsonb` | Not null, default `{}` |
 | `created_at` | `timestamptz` | Not null |
 | `updated_at` | `timestamptz` | Not null |
@@ -48,10 +46,9 @@ Indexes:
 Indexes:
 
 - `observations_source_asset_idx` on `source_asset_id`
-- `observations_last_observed_idx` on `last_observed_at desc, observation_id asc`
 - `observations_updated_at_idx` on `updated_at desc, observation_id asc`
 
-Service validation must ensure `source_asset_id` references an entity whose `type` is `asset`.
+Service validation must ensure `source_asset_id` references an entity whose `type` is `asset`, `json.state` is valid, and `json.latest_sighting` matches the active sighting catalog when present.
 
 ### `tasks`
 
@@ -125,6 +122,8 @@ Delete behavior follows [`../../decisions/0007-core-referential-integrity.md`](.
 
 ## Object File Consistency
 
-Object file upload and delete behavior follows [`../../decisions/0006-object-file-write-ordering.md`](../../decisions/0006-object-file-write-ordering.md).
+Object file upload, append, and delete behavior follows [`../../decisions/0006-object-file-write-ordering.md`](../../decisions/0006-object-file-write-ordering.md).
 
 Committed PostgreSQL metadata is the source of truth for what files exist. Atlas Core should not expose metadata for partially uploaded files.
+
+Append should update `object_files.size_bytes`, `object_files.updated_at`, and the parent `objects.updated_at` after bytes are durably appended.

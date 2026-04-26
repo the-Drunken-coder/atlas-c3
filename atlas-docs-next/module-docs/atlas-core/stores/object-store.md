@@ -30,6 +30,7 @@ Objects are the authoritative owners of relationship links to records that use t
 Required capabilities:
 
 - upload object file with caller-supplied `file_id`
+- append bytes to an existing object file
 - create object file metadata
 - read object file metadata
 - stream object file bytes
@@ -37,13 +38,14 @@ Required capabilities:
 - delete object file bytes
 - list files for an object
 
-File upload should coordinate metadata and byte writes carefully. The system does not need migration or rollback machinery, but normal runtime operations should avoid leaving obvious contradictory state when possible.
+File upload and append should coordinate metadata and byte writes carefully. The system does not need migration or rollback machinery, but normal runtime operations should avoid leaving obvious contradictory state when possible.
 
 ## Filesystem Capabilities
 
 Required capabilities:
 
 - write bytes under the managed storage root
+- append bytes to existing managed files
 - open bytes for streaming
 - stat bytes
 - delete bytes
@@ -66,4 +68,3 @@ The object store should expose readiness for both:
 
 - object metadata access through PostgreSQL
 - filesystem byte storage access
-

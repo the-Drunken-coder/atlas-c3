@@ -48,6 +48,7 @@ Object record ownership is defined in [`../data-model/objects.md`](../data-model
 | `PATCH` | `/objects/{object_id}` | `200` resource | Update object metadata |
 | `DELETE` | `/objects/{object_id}` | `204` empty | Delete an object |
 | `POST` | `/objects/{object_id}/files` | `201` file resource | Upload an object file |
+| `POST` | `/objects/{object_id}/files/{file_id}/append` | `200` file resource | Append bytes to an object file |
 | `GET` | `/objects/{object_id}/files/{file_id}` | `200` file resource | Read object file metadata |
 | `GET` | `/objects/{object_id}/files/{file_id}/content` | `200` byte stream | Stream object file content |
 | `DELETE` | `/objects/{object_id}/files/{file_id}` | `204` empty | Delete an object file |
@@ -91,6 +92,8 @@ Request body:
 Required fields: `object_id`, `type`, `owner_type`, `owner_id`, `json`.
 
 The owner must exist unless `owner_type` is `system`. System owners are limited to Core-defined identifiers such as `active_command_catalog`.
+
+For `type: "fusion_provenance"`, the owner should be a track entity. The object file content should be structured JSON containing detailed fusion reasoning.
 
 Failures:
 
@@ -144,6 +147,29 @@ Failures:
 - `409 conflict` when `file_id` already exists.
 - `413 payload_too_large` when upload exceeds configured limit.
 - `415 unsupported_media_type` when content type is not accepted.
+- `503 storage_unavailable` for PostgreSQL or object file storage failure.
+
+## Append Object File
+
+`POST /objects/{object_id}/files/{file_id}/append` appends bytes to an existing object file. It does not replace existing bytes.
+
+Append is intended for append-only payloads such as observation sighting history JSON Lines. Callers should append complete records and include their own newline delimiters when writing JSONL.
+
+The request body is a raw byte stream. Response body is the updated object file metadata.
+
+Successful append behavior:
+
+- append bytes to the existing file content
+- update the file's `size_bytes`
+- update the file's `updated_at`
+- update the parent object's `updated_at`
+- publish an object update event
+
+Failures:
+
+- `400 validation_failed` for an empty append body or unsafe request fields.
+- `404 not_found` when `object_id` or `file_id` does not exist, or when the file does not belong to the object.
+- `413 payload_too_large` when append exceeds configured per-request or resulting-file limits.
 - `503 storage_unavailable` for PostgreSQL or object file storage failure.
 
 ## Read Object File Metadata

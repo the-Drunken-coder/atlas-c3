@@ -28,7 +28,9 @@ Observations flow into Atlas Core as first-class observation records.
 
 Observation files flow into Atlas Core as objects and object files owned by the observation.
 
-Observation data is defined in [`../contracts/data-model/observations.md`](../contracts/data-model/observations.md). Object and file ownership is defined in [`../contracts/data-model/objects.md`](../contracts/data-model/objects.md).
+Sighting history flows into Atlas Core as append-only JSON Lines in an observation-owned object file. The observation record keeps current summary state such as `json.latest_sighting`.
+
+Observation data is defined in [`../contracts/data-model/observations.md`](../contracts/data-model/observations.md). Sighting payloads are defined in [`../contracts/data-model/sighting-catalog.md`](../contracts/data-model/sighting-catalog.md). Object and file ownership is defined in [`../contracts/data-model/objects.md`](../contracts/data-model/objects.md).
 
 ## Tasks
 

@@ -80,6 +80,7 @@ Planned groups:
 - update object metadata
 - delete object
 - upload object file
+- append to object file
 - read object file metadata
 - download or view object file content
 - delete object file

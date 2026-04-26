@@ -24,6 +24,7 @@ Detailed contracts:
 
 - [`entities.md`](./entities.md)
 - [`observations.md`](./observations.md)
+- [`sighting-catalog.md`](./sighting-catalog.md)
 - [`tasks.md`](./tasks.md)
 - [`objects.md`](./objects.md)
 - [`components/overview.md`](./components/overview.md)
@@ -71,20 +72,18 @@ Observations should capture source-owned evidence about something detected, meas
 Observation state should support:
 
 - source asset identity
-- first observed timestamp
-- most recent observed timestamp
-- kinematic evidence
-- classification evidence
-- identity evidence
-- confidence or uncertainty information
-- related object records that store files for the observation
+- current observation lifecycle state
+- latest sighting summary
+- optional sighting history object reference
+- sighting inaccuracy information when reported by the source
+- related object records that store files or append-only sighting history for the observation
 
-Observation files should be stored through objects. The observation owns the evidence semantics; the object owns file-container metadata, link metadata, and file bytes.
+Observation files and sighting history should be stored through objects. The observation owns the current evidence summary; the object owns file-container metadata, link metadata, and file bytes.
 
 Important observation relationships:
 
 - An observation is produced by an asset or sensor.
-- An observation may have one or more related objects containing files such as images, clips, sensor captures, or sidecar data.
+- An observation may have one or more related objects containing files such as images, clips, sensor captures, sidecar data, or sighting history JSONL.
 - Data fusion may consume observations to create or update tracks.
 - An observation is evidence, while a track is authoritative current system truth.
 
@@ -174,6 +173,14 @@ The source command catalog should live in the Atlas Core codebase as a checked-i
 
 The command catalog contract is [`command-catalog/overview.md`](./command-catalog/overview.md).
 
+## Sighting Catalog
+
+The sighting catalog does not create a record family.
+
+The source sighting catalog should live in the Atlas Core codebase as a checked-in JSON file. At startup, Atlas Core should validate that JSON and keep it in memory for observation and sighting validation. It should not be materialized as an object and should not have a public API endpoint.
+
+The sighting catalog contract is [`sighting-catalog.md`](./sighting-catalog.md).
+
 ## Concurrency Scope
 
 Optimistic concurrency should be used only where realistic multi-writer collisions can happen. It should not be applied broadly to every endpoint by default.
@@ -188,4 +195,3 @@ Later contracts should identify whether each rule is enforced by:
 - reader assumption
 
 This distinction from the old docs is worth keeping. It makes clear which rules are hard guarantees and which rules require writers or readers to behave correctly.
-

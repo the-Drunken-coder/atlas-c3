@@ -41,7 +41,7 @@ Detailed workflow docs:
 - [`asset-online.md`](./asset-online.md) - asset comes online and becomes visible to operators.
 - [`operator-creates-task.md`](./operator-creates-task.md) - operator creates a task for an asset.
 - [`asset-executes-task.md`](./asset-executes-task.md) - asset receives, executes, and reports task lifecycle state.
-- [`asset-submits-observation-files.md`](./asset-submits-observation-files.md) - asset produces an observation and related object files.
+- [`asset-submits-observation-files.md`](./asset-submits-observation-files.md) - asset reports observation sightings and related object files.
 - [`core-startup-command-catalog.md`](./core-startup-command-catalog.md) - Atlas Core restarts and rematerializes the command catalog.
 
 Workflow docs still needed later:
@@ -54,4 +54,4 @@ Workflow docs still needed later:
 
 Observation evidence updating a track is deferred with data fusion planning.
 
-Data fusion worker boundaries are documented in [`../../module-docs/atlas-core/data-fusion.md`](../../module-docs/atlas-core/data-fusion.md). Fusion algorithms and evidence field choices remain deferred.
+Data fusion worker boundaries are documented in [`../../module-docs/atlas-core/data-fusion.md`](../../module-docs/atlas-core/data-fusion.md). Fusion algorithms and observation-to-track association choices remain deferred.
