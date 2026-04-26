@@ -101,11 +101,14 @@ When Atlas Core starts:
 1. Load the checked-in command catalog JSON.
 2. Validate the catalog shape and every command schema.
 3. Store the parsed catalog in memory for task validation.
-4. Materialize the exact authored JSON as a normal object with `type: "command_catalog"`, `owner_type: "system"`, and `owner_id: "active_command_catalog"`.
-5. Store the catalog JSON as an object file with content type `application/json`.
-6. Expose the materialized object ID as `active_command_catalog_object_id` from `GET /`.
+4. Compute a stable content hash for the exact authored JSON.
+5. Materialize the JSON as a normal object with `type: "command_catalog"`, `owner_type: "system"`, and `owner_id: "active_command_catalog"`. The object ID should include the content hash so identical catalogs reuse the same object ID and changed catalogs get a new pinned ID.
+6. Store the catalog JSON as an object file with content type `application/json`.
+7. Expose the materialized object ID as `active_command_catalog_object_id` from `GET /`.
 
 The object and file use the normal object API shapes. There is no command-catalog-specific table or endpoint.
+
+Repeated startup with identical catalog content should be idempotent: reuse the same object and file metadata when already present. A changed catalog creates a new object ID and rotates the active catalog object ID. Since Atlas Core uses short-lived operational storage, retention is normally handled by local reset; if long-running deployments need cleanup, they should keep the most recent active object plus enough older objects for tasks that still reference them.
 
 If the checked-in command catalog is invalid, Atlas Core should fail startup/readiness with `catalog_unavailable` and log enough context to identify the invalid command or schema.
 
@@ -134,12 +137,13 @@ The object file bytes contain the full authored catalog JSON. The object `json` 
 
 When a task is created:
 
-1. Validate `command_catalog_object_id` equals the active command catalog object ID.
-2. Validate `json.components.command.type` exists in the active in-memory catalog.
-3. Validate `json.components.parameters` against that command's `parameters_schema`.
-4. Check that the target asset has `json.components.supported_commands`.
-5. Check that the requested command type is listed in the target asset's `supported_commands.commands`.
-6. Store the active command catalog object's ID on the task.
+1. Core resolves the active command catalog from startup state.
+2. The client must not provide `command_catalog_object_id`; it is server-assigned.
+3. Validate `json.components.command.type` exists in the active in-memory catalog.
+4. Validate `json.components.parameters` against that command's `parameters_schema`.
+5. Check that the target asset has `json.components.supported_commands`.
+6. Check that the requested command type is listed in the target asset's `supported_commands.commands`.
+7. Store the active command catalog object's ID on the task as `command_catalog_object_id`.
 
 After creation, validation and retries for that task should resolve command definitions through the task's stored `command_catalog_object_id`, not through a later globally active catalog value.
 

@@ -1,7 +1,10 @@
-Agent Notes Purpose
+# Agent Notes Purpose
+
 The role of this file is to describe common mistakes and confusion points that agents might encounter while working in this project.
 If you encounter anything in the project that surprises you, alert the developer you are working with and record that note in this agents.md file so future agents can avoid the same issue.
-Core Working Rules
+
+## Core Working Rules
+
 - Keep solutions simple and fully functional; avoid mockups.
 - Do not use database migrations.
 - Avoid mock or stub data in dev/prod code paths (tests only).
@@ -12,16 +15,19 @@ Core Working Rules
 - Tolerate nothing when it comes to bad patterns or code. If a bad pattern appears, it will multiply—remove it aggressively, even if it's inconvenient.
 - Embrace sledgehammering or aggressively deleting and rebuilding parts of the codebase. Throw away more code and be less attached to existing lines; aggressively delete code if there's an inkling it should be gone.
 
-Behavioral Guidelines
+## Behavioral Guidelines
+
 These guidelines are intended to reduce common LLM coding mistakes. Merge them with project-specific instructions as needed.
 Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-1. Think Before Coding
+### 1. Think Before Coding
+
 - State assumptions explicitly before implementing. If uncertain, ask.
 - If multiple interpretations exist, present them instead of silently picking one.
 - If a simpler approach exists, say so; push back when warranted. Avoid assumptions and confusion—surface tradeoffs and ask before proceeding if unclear.
 
-2. Simplicity First
+### 2. Simplicity First
+
 - Write the minimum code that solves the problem. Nothing speculative.
 - Skip features beyond what was asked.
 - Avoid abstractions for single-use code.
@@ -30,7 +36,8 @@ Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, us
 - If you write 200 lines and it could be 50, rewrite it.
 - Ask: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-3. Surgical Changes
+### 3. Surgical Changes
+
 - When this document explicitly says to "tolerate nothing" or otherwise mandates aggressive removal of bad patterns, that aggressive-cleanup guidance takes precedence over the Surgical Changes constraints; in all other cases follow the Surgical Changes rules.
 - Touch only what you must. Clean up only your own mess.
 - Do not improve adjacent code, comments, or formatting unless the request requires it.
@@ -39,7 +46,8 @@ Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, us
 - Remove imports, variables, and functions that your own changes make unused; do not delete pre-existing or unrelated dead code unless explicitly requested.
 - Every changed line should trace directly to the user's request.
 
-4. Goal-Driven Execution
+### 4. Goal-Driven Execution
+
 - Define success criteria that can be verified, then loop until verified.
 - Translate vague tasks into checks:
   - "Add validation" -> write tests for invalid inputs, then make them pass.
@@ -49,6 +57,3 @@ Tradeoff: These guidelines bias toward caution over speed. For trivial tasks, us
 - Strong success criteria enable independent execution. Weak criteria require clarification.
 
 These guidelines are working if they produce fewer unnecessary diff changes, fewer rewrites due to overcomplication, and clarifying questions before implementation instead of after mistakes.
-
-ATLAS-c3 Rules
-

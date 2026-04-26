@@ -59,7 +59,6 @@ Request body:
 {
   "task_id": "task-001",
   "asset_id": "asset-001",
-  "command_catalog_object_id": "command-catalog-20260101",
   "json": {
     "description": "Move to specified location",
     "created_by": "operator-001",
@@ -72,14 +71,14 @@ Request body:
 }
 ```
 
-Required fields: `task_id`, `asset_id`, `command_catalog_object_id`, `json.components.command.type`.
+Required fields: `task_id`, `asset_id`, `json.components.command.type`.
 
-Core sets initial `status` to `pending`. Create requests must not set `status`, `created_at`, or `updated_at`.
+Core sets initial `status` to `pending` and resolves `command_catalog_object_id` from the active command catalog. Create requests must not set `status`, `command_catalog_object_id`, `created_at`, or `updated_at`.
 
 Validation sequence:
 
 1. `asset_id` must exist and reference an entity whose `type` is `asset`.
-2. `command_catalog_object_id` must equal the active command catalog object ID exposed by `GET /`.
+2. The active command catalog object ID must be available.
 3. `json.components.command.type` must exist in the active in-memory command catalog.
 4. `json.components.parameters` must satisfy that command's `parameters_schema`.
 5. The target asset must include `json.components.supported_commands`.
@@ -87,9 +86,9 @@ Validation sequence:
 
 Failures:
 
-- `400 validation_failed` for missing fields, unknown fields, or invalid request shape.
-- `400 command_validation_failed` for invalid command type, parameters, catalog mismatch, missing asset `supported_commands`, or unsupported asset command.
-- `404 not_found` when `asset_id` or `command_catalog_object_id` does not exist.
+- `400 validation_failed` for missing fields, unknown fields, invalid request shape, or caller-supplied `command_catalog_object_id`.
+- `400 command_validation_failed` for invalid command type, parameters, missing asset `supported_commands`, or unsupported asset command.
+- `404 not_found` when `asset_id` does not exist.
 - `409 conflict` when `task_id` already exists.
 - `503 catalog_unavailable` when no active catalog is available.
 

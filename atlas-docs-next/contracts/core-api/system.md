@@ -14,7 +14,14 @@ Shared API behavior is defined in [`conventions.md`](./conventions.md). Error co
 
 ## Service Descriptor
 
-`GET /` returns `200 OK` with basic service information and discoverable system-owned identifiers.
+`GET /` returns basic service information and discoverable system-owned identifiers when required startup state is available.
+
+Statuses:
+
+| Status | Condition |
+| --- | --- |
+| `200 OK` | Service descriptor is available and the active command catalog object ID has been materialized |
+| `503 catalog_unavailable` | The command catalog is missing, invalid, or not materialized |
 
 Response body:
 
@@ -34,7 +41,7 @@ Response body:
 }
 ```
 
-`active_command_catalog_object_id` must be present only after the checked-in command catalog has been validated and materialized as an object. If it is unavailable, `GET /` should return `503 catalog_unavailable`.
+`active_command_catalog_object_id` must be present only after the checked-in command catalog has been validated and materialized as an object. If it is unavailable, `GET /` must return `503 catalog_unavailable`.
 
 ## Health
 

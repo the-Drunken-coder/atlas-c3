@@ -4,10 +4,10 @@ This folder is the new planning structure for ATLAS-C3 documentation. It is mean
 
 ## Structure
 
-- `system-docs/` - Cross-system docs. Use this for product goals, whole-system architecture, shared vocabulary, MVP workflows, and constraints that affect multiple modules.
-- `contracts/` - Shared interfaces. Use this for API contracts, data shapes, SDK surfaces, asset-to-core protocols, stream formats, error envelopes, and any interface that more than one module depends on.
-- `module-docs/` - Specific system docs. Use this for docs owned by one module, such as `atlas-core`, `atlas-sdk`, `atlas-command-interface`, or future asset/runtime modules.
-- `decisions/` - Settled choices. Use this for short decision records that explain what was chosen, why it was chosen, and what alternatives were rejected.
+- `system-docs/` - Cross-system docs for product goals, whole-system architecture, shared vocabulary, MVP workflows, and constraints that affect multiple modules.
+- `contracts/` - Shared interfaces for API contracts, data shapes, SDK surfaces, asset-to-core protocols, stream formats, error envelopes, and any interface that more than one module depends on.
+- `module-docs/` - Module-specific docs owned by one module, such as `atlas-core`, `atlas-sdk`, `atlas-command-interface`, or future asset/runtime modules.
+- `decisions/` - Settled choices recorded as short decision notes that explain what was chosen, why it was chosen, and what alternatives were rejected.
 
 ## Placement Rules
 
@@ -39,4 +39,3 @@ When in doubt, start with the highest shared level. A module doc can link to a c
 - Avoid duplicating the same rule in multiple places. Put the authoritative version in one doc and link to it.
 - Update docs when implementation changes the contract or invalidates an old assumption.
 - Do not use mock or fake data as product truth. Examples should be clearly illustrative.
-

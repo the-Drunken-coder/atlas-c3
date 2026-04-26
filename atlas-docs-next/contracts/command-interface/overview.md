@@ -32,9 +32,7 @@ The command catalog contract is [`../data-model/command-catalog/overview.md`](..
 
 ## Task Authoring
 
-Task authoring should produce normal Core task-create payloads through SDK helpers unless a later contract proves a separate shared task-authoring payload is needed.
-
-Task API behavior is [`../core-api/tasks.md`](../core-api/tasks.md). Task data shape is [`../data-model/tasks.md`](../data-model/tasks.md).
+Task authoring uses normal Core task-create payloads through SDK helpers unless a later contract proves a separate shared task-authoring payload is needed; API behavior lives in [`../core-api/tasks.md`](../core-api/tasks.md), and data shape lives in [`../data-model/tasks.md`](../data-model/tasks.md).
 
 ## Authority Boundaries
 

@@ -1,6 +1,6 @@
 # Fusion Summary
 
-Compact provenance summary for a fused track.
+Compact provenance summary for a track produced or explained by fusion/provenance logic.
 
 **Applies to:** tracks only.
 
@@ -26,13 +26,14 @@ Compact provenance summary for a fused track.
 | --- | --- | --- | --- | --- |
 | `observed_at` | RFC 3339 timestamp | yes | valid timestamp | When the fused track state summarized here was produced |
 | `fusion_run_id` | string | yes | non-empty, max 100 characters | Fusion worker run or decision identifier |
-| `source_observation_ids` | array of strings | yes | observation IDs, may be empty only for manually created tracks | Observations used by the fusion decision |
+| `source_observation_ids` | array of strings | yes | observation IDs; empty only when the track was created without source observations | Observations used by the fusion decision |
 | `confidence` | number | no | `0 <= x <= 1` | Summary confidence for the fused track state |
-| `provenance_object_id` | string | no | object ID | Track-owned object containing detailed fusion reasoning |
+| `provenance_object_id` | string | no | object ID | Track-owned object containing detailed fusion reasoning; use `owner_type: "entity"` and `owner_id: "{track_id}"` |
 
 ## Usage Notes
 
 - This component keeps normal track reads small and operationally useful.
 - Full reasoning belongs in a `fusion_provenance` object owned by the track entity.
 - `source_observation_ids` is a compact summary, not a complete long-term audit log.
+- Empty `source_observation_ids` is allowed only for tracks created without observation inputs, such as a human/operator-created track whose provenance object explains the non-observation source.
 - Assets that only need current track state can ignore `provenance_object_id`.

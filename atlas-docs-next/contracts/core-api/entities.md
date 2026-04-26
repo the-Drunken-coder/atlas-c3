@@ -42,7 +42,7 @@ Entity record ownership is defined in [`../data-model/entities.md`](../data-mode
 
 ## List Entities
 
-`GET /entities` returns a paginated JSON array.
+`GET /entities` returns a paginated JSON array. Pagination metadata is returned in the standard pagination headers defined in [`conventions.md`](./conventions.md), not in a JSON response envelope.
 
 Supported filters:
 

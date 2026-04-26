@@ -1,5 +1,0 @@
-# Ignore the implementation repo checkout; this planning repo tracks docs only.
-/atlas-core/
-
-# Ignore legacy/generated docs. `atlas-docs-next/` is the active tracked docs source.
-/atlas-docs/

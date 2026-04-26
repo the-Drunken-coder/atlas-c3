@@ -38,7 +38,15 @@ Required capabilities:
 - delete object file bytes
 - list files for an object
 
-File upload and append should coordinate metadata and byte writes carefully. The system does not need migration or rollback machinery, but normal runtime operations should avoid leaving obvious contradictory state when possible.
+File upload and append should coordinate metadata update and byte write steps carefully.
+
+Success is reported only after both the byte write and the PostgreSQL metadata update are complete. The public API should not report partial success.
+
+For file upload, the object store should write bytes to a staging path first, then create object file metadata and update the parent object metadata in one PostgreSQL transaction, then promote the staged bytes to the committed path. If the metadata update fails, delete the staged bytes and return `503 storage_unavailable`. If byte promotion fails after metadata update, delete the file metadata row in a compensating transaction, log the mismatch, and return `503 storage_unavailable`.
+
+For append, the byte write and metadata update must stay ordered so `size_bytes` reflects committed content. If the byte write fails, leave metadata unchanged and return `503 storage_unavailable`. If the metadata update fails after bytes append, the store should make one immediate compensating attempt to truncate or remove the appended bytes; if that cleanup cannot be proven, log a storage mismatch and return `503 storage_unavailable`.
+
+Retries follow the API-level semantics: uploads are create operations with caller-supplied `file_id`, while append is not intrinsically idempotent. Callers should not blindly retry append after an ambiguous transport failure unless they can tolerate duplicate appended bytes or use a higher-level SDK reconciliation path.
 
 ## Filesystem Capabilities
 
@@ -58,7 +66,7 @@ PostgreSQL stores logical paths and metadata. The filesystem volume stores bytes
 
 The command catalog is materialized through the object store at startup.
 
-The command catalog source is checked-in JSON. Atlas Core loads it, creates an object, stores the catalog payload as an object file, and exposes the active command catalog object ID through the service descriptor.
+The command catalog source is checked-in JSON. Atlas Core loads it, resolves the content-hash object ID, creates or reuses the catalog object and file, and exposes the active command catalog object ID through the service descriptor.
 
 There is no command catalog store.
 

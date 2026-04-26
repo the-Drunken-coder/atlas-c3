@@ -28,6 +28,10 @@ The full query can be assembled from:
 - [`regular-record-store.md`](./regular-record-store.md) for entities, observations, and tasks
 - [`object-store.md`](./object-store.md) for object metadata
 
+The assembled response should represent one logical read snapshot for PostgreSQL-backed structured records and object metadata. Atlas Core should use one read-only database transaction where possible so entities, observations, tasks, objects, and object file metadata are mutually consistent at `generated_at`.
+
+Object file bytes are excluded, so the full query does not provide byte-content atomicity. Clients should treat missed stream events or questionable replica state by replacing local structured state from `GET /queries/full`, then reading object file bytes separately when needed.
+
 This should stay simple unless implementation shows a need for a dedicated query path.
 
 ## Pagination
@@ -42,4 +46,3 @@ Query support is not:
 - a durable event log
 - a reporting database
 - a replacement for normal list endpoints
-

@@ -27,7 +27,7 @@ Atlas Core should enforce at least:
 - `observations.source_asset_id` references `entities.entity_id`
 - `object_files.object_id` references `objects.object_id`
 
-`objects.owner_type` and `objects.owner_id` are a polymorphic reference. Atlas Core should enforce `owner_type`/`owner_id` validity in the service layer at minimum, and may add database-level enforcement later if a simple approach proves maintainable.
+`objects.owner_type` and `objects.owner_id` are a polymorphic reference. PostgreSQL should enforce `objects.owner_type` with a `CHECK (owner_type in ('entity', 'observation', 'task', 'system'))` constraint and an index on `(owner_type, owner_id)`. Atlas Core must still enforce owner existence for `owner_id` in the service layer because it points at different tables depending on `owner_type`.
 
 ### Delete behavior
 

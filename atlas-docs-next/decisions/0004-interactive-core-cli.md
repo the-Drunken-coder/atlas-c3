@@ -28,6 +28,8 @@ Shutdown should stop the Atlas Core containers and remove the project-owned cont
 
 This destructive cleanup is scoped to Atlas Core project resources, not unrelated Docker resources on the developer's machine.
 
+Cleanup selection must be label-based. The CLI may stop or remove only containers whose `com.docker.compose.project` or `atlas.project` label equals the configured Atlas Core project value. It may remove images only when they carry the Atlas Core project label and are not referenced by non-project containers. It may remove volumes only when they carry the Atlas Core project label. If a candidate resource is unlabeled, label-mismatched, or referenced by an external container, the CLI must refuse to delete it and report the reason.
+
 Before restart or shutdown proceeds, the CLI must show a clear destructive warning and require typed confirmation, such as `Type YES to continue`.
 
 A non-interactive override flag, such as `--yes` or `--confirm`, may bypass the typed confirmation for automation. The flag must be explicit and should be documented in CLI help text.
@@ -45,4 +47,3 @@ A non-interactive override flag, such as `--yes` or `--confirm`, may bypass the 
 ## Rejected Direction
 
 Do not make developers manage normal Atlas Core lifecycle through raw Docker commands as the primary workflow.
-

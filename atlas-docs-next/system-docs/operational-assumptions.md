@@ -90,7 +90,7 @@ Logs should use the shared run logging fields, correlation IDs, and category str
 
 Simulation and debugging workflows are first-class uses of the system.
 
-Simulation assets should use the same real Atlas Core APIs, SDK helpers, task lifecycle rules, observation paths, and object file paths as other assets. Simulation should not introduce fake product data paths or mock-only runtime behavior outside tests.
+Simulation assets must use the same real Atlas Core APIs, SDK helpers, task lifecycle rules, observation paths, and object file paths as other assets, and should not introduce fake product data paths or mock-only runtime behavior outside tests.
 
 Reset, delete, and rebuild workflows are acceptable tools for simulation and local debugging.
 

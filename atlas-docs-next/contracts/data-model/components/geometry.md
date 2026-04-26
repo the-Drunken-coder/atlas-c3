@@ -39,7 +39,7 @@ GeoJSON-style fields:
 
 | Field | Type | Required | Constraint | Description |
 | --- | --- | --- | --- | --- |
-| `type` | string | yes | `Point` / `LineString` / `Polygon` | GeoJSON geometry type |
+| `type` | string | yes | `Point` / `LineString` / `Polygon` | GeoJSON geometry type; `MultiPoint`, `MultiLineString`, `MultiPolygon`, and `GeometryCollection` are not supported |
 | `coordinates` | array | yes | valid GeoJSON coordinate nesting, max 10000 points | Coordinates in `[longitude, latitude]` order |
 
 Atlas fields:
@@ -56,4 +56,6 @@ Atlas fields:
 
 - The entity `subtype` is advisory. The geometry component is authoritative for spatial shape.
 - GeoJSON uses `[longitude, latitude]`; Atlas arrays use explicit fields or `[lat, lng]` pairs.
+- GeoJSON `Point` maps to Atlas `point_lat` and `point_lng`, with `radius_m` for circles. GeoJSON `LineString` maps to the Atlas `line` array, and GeoJSON `Polygon` maps to the Atlas `polygon` array.
+- Multi-part geometries should be represented as separate geofeature entities rather than one `geometry` component.
 - Overlay payloads such as heatmaps or imagery belong in objects, not inside this component.

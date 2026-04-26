@@ -40,6 +40,8 @@ Array entries use the same resource shapes defined in the resource API docs:
 
 The full query must not include object file bytes.
 
+`generated_at` must be a UTC RFC 3339 timestamp with a trailing `Z`, such as `2026-01-01T00:00:00Z`.
+
 The response should represent one logical read snapshot for structured state and object metadata. Since these records live in PostgreSQL, Atlas Core should assemble the response from a single read-only database transaction where possible.
 
 This endpoint is not a historical replay API.
@@ -48,3 +50,5 @@ Failures:
 
 - `503 storage_unavailable` when PostgreSQL is unavailable.
 - `503 catalog_unavailable` when the active command catalog identifier is unavailable.
+
+Failure responses use the standard error envelope from [`errors.md`](./errors.md), including `success`, `message`, `error_code`, `error_id`, `timestamp`, `path`, and optional `details`.

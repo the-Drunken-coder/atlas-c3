@@ -63,7 +63,7 @@ The filesystem volume owns the bytes. PostgreSQL owns metadata and logical paths
 
 Object file IDs are globally unique even though file API paths are nested under objects. The nested path keeps the API clear about parent ownership; the database identity remains `file_id`.
 
-File bytes should not be replaced in place. A byte-content replacement should be represented by deleting and uploading an object file, or by a later explicit replace operation that updates metadata and preserves event behavior.
+File bytes should not be replaced in place. Current behavior is delete-and-upload or append where explicitly documented. A future explicit replace operation may update metadata and preserve event behavior, but it is not part of the current contract; stream behavior for current byte changes is defined in [`../core-api/stream.md`](../core-api/stream.md).
 
 Object files may support explicit append through the object API. Append adds bytes to the end of an existing file, updates file metadata, and bumps the parent object `updated_at`. Append is intended for append-only payloads such as observation sighting history JSON Lines.
 

@@ -24,7 +24,7 @@ SDK replica mode should own:
 
 Atlas Core restart should rematerialize the checked-in command catalog as an object before reporting ready.
 
-If command catalog materialization or validation fails, Atlas Core should fail startup/readiness with a clear error code and log context.
+If command catalog materialization or validation fails, Atlas Core should fail startup/readiness with `catalog_unavailable` and log context. Modules must use that exact code for catalog startup/readiness failures.
 
 Command catalog behavior is defined in [`../../contracts/data-model/command-catalog/overview.md`](../../contracts/data-model/command-catalog/overview.md).
 

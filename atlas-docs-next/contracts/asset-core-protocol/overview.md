@@ -20,7 +20,7 @@ Assets identify themselves by registering when they start up, then heartbeat con
 
 Asset registration should use entity create/read behavior for asset entities. The SDK can wrap that behavior as a `register` helper instead of requiring a dedicated Core registration endpoint.
 
-Assets should be able to check whether they are already registered before trying to register again after reconnecting or restarting.
+Assets should check whether they are already registered by reading `GET /entities/{entity_id}` before trying to register again after reconnecting or restarting. The SDK `register` helper should wrap that read/create flow: read the asset entity, create it with the Core entity create endpoint when missing, and recover from duplicate create by reading the existing entity.
 
 ## Heartbeat And State
 

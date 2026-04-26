@@ -118,6 +118,8 @@ Stream behavior:
 - Replica mode applies stream event payloads directly.
 - Core stream create/update events must include enough resource payload for direct replica updates.
 - Missed stream events still require a fresh `GET /queries/full`.
+- On stream disconnect, replica mode should keep serving cached reads, mark replica health as `reconnecting` or `stale`, perform a fresh `GET /queries/full`, reconnect to the stream, and return to `healthy` only after refresh and stream subscription are both active.
+- Replica mode should support periodic full refresh as a consistency backstop. The default interval should be 20 seconds and should be configurable.
 
 Subscriptions:
 

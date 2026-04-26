@@ -86,9 +86,7 @@ Replica mode is in-memory only. It is not durable storage, not offline-first, an
 
 Replica mode writes should go through Atlas Core first. The local replica should update only after a successful Core response or confirmed stream update.
 
-If the stream disconnects, replica mode should reset or invalidate the local replica, perform a fresh full-state read, reconnect, and resume.
-
-Replica mode should support periodic full refresh as a consistency backstop. The default interval should be 20 seconds and should be configurable.
+Implement replica disconnect recovery and periodic full refresh behavior according to the SDK contract.
 
 ## Testing
 

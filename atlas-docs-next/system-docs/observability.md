@@ -12,7 +12,7 @@ Each line is one JSON object. Required fields:
 
 | Field | Meaning |
 | --- | --- |
-| `timestamp` | RFC 3339 timestamp |
+| `timestamp` | UTC RFC 3339 (Zulu) timestamp, such as `2023-07-21T17:32:28Z` |
 | `run_id` | Identifier shared by all services in one run |
 | `service` | Service or process name, such as `atlas-core`, `atlas-sdk`, or `atlas-data-fusion` |
 | `component` | Internal component or subsystem |
@@ -29,6 +29,8 @@ Optional common fields:
 | `duration_ms` | Operation duration in milliseconds |
 | `error_code` | Stable Core or SDK error code |
 | `details` | Event-specific structured context |
+
+All services must normalize log timestamps to UTC with a trailing `Z` so combined timelines can be correlated without per-service timezone interpretation.
 
 ## Resource Context
 

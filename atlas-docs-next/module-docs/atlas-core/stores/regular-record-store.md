@@ -21,7 +21,6 @@ Required capabilities:
 - list entities with pagination
 - patch entity
 - delete entity
-- list tasks assigned to an asset
 
 The store should enforce database-level constraints and return enough information for the service layer to produce API responses and errors.
 
@@ -47,7 +46,7 @@ Required capabilities:
 - patch task
 - delete task
 - update task status
-- list tasks assigned to an asset
+- `listTasksForAsset(asset_id)` to support `GET /entities/{entity_id}/tasks`
 
 Tasks target assets. The service layer should own task validation, command catalog validation, and task lifecycle rules.
 
@@ -76,4 +75,3 @@ Object file byte writes do not belong to this store and cannot be rolled back by
 ## Readiness
 
 The regular record store should expose a database readiness check for Atlas Core readiness.
-

@@ -10,6 +10,7 @@ API contract: [`../../../contracts/core-api/observations.md`](../../../contracts
 - validate `source_asset_id` references an entity whose `type` is `asset`
 - validate observation JSON shape, including required `json.state`
 - validate `json.latest_sighting` against the active sighting catalog when present
+- when `json.latest_sighting` is present, validate `json.sightings_object_id` atomically with it: the object must exist, use `owner_type=observation`, use `owner_id={observation_id}`, and have the expected sighting-history object type
 - require caller-supplied `observation_id` on create
 - enforce first-class observation behavior
 - coordinate observation persistence through the regular record store
@@ -26,4 +27,4 @@ Observation files and sighting history JSONL are handled through objects. The ob
 
 There is no finalize or close endpoint. Observation lifecycle is represented through observation state updates.
 
-Observation-related objects are queried through the object API using `owner_type=observation` and `owner_id={observation_id}`.
+Observation-related objects are queried through object service/store interfaces using `owner_type=observation` and `owner_id={observation_id}`.

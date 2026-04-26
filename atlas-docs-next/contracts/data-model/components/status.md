@@ -27,5 +27,5 @@ Operator-visible posture for an entity.
 ## Usage Notes
 
 - Status is display-oriented metadata, not behavioral authority.
-- Use task records for assigned work and communications for reachability.
+- Use task records for assigned work and [`communications`](./communications.md) for reachability.
 - `unknown` is valid when the UI should avoid implying a posture.

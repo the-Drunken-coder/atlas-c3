@@ -1,6 +1,6 @@
-# Asset Reports Observation Sightings
+# Asset Reports Observation Sightings And Files
 
-This workflow describes how an asset creates or updates a first-class observation and reports timestamped sightings over time.
+This workflow describes how an asset creates or updates a first-class observation, reports timestamped sightings over time, and stores related files.
 
 Observation API behavior is defined in [`../../contracts/core-api/observations.md`](../../contracts/core-api/observations.md). Sighting shapes are defined in [`../../contracts/data-model/sighting-catalog.md`](../../contracts/data-model/sighting-catalog.md). Object API behavior is defined in [`../../contracts/core-api/objects.md`](../../contracts/core-api/objects.md).
 

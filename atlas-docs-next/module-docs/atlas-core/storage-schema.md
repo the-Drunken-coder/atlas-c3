@@ -77,7 +77,7 @@ Service validation must ensure `asset_id` references an entity whose `type` is `
 | --- | --- | --- |
 | `object_id` | `text` | Primary key, length 1-50 |
 | `type` | `text` | Not null |
-| `owner_type` | `text` | Not null, one of `entity`, `observation`, `task`, `system` |
+| `owner_type` | `text` | Not null, check in `entity`, `observation`, `task`, `system` |
 | `owner_id` | `text` | Not null |
 | `json` | `jsonb` | Not null, default `{}` |
 | `created_at` | `timestamptz` | Not null |
@@ -89,7 +89,7 @@ Indexes:
 - `objects_type_idx` on `type`
 - `objects_updated_at_idx` on `updated_at desc, object_id asc`
 
-`owner_type` and `owner_id` are polymorphic. Atlas Core must enforce owner existence in the service layer.
+`owner_type` and `owner_id` are polymorphic. Atlas Core must enforce owner existence in the service layer. The database still enforces the allowed `owner_type` set and indexes `(owner_type, owner_id)` for owner-filtered reads and dependent checks.
 
 ### `object_files`
 

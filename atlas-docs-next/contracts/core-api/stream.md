@@ -146,7 +146,9 @@ Rules:
 - If more than 8 files are affected, omit `affected_files` and rely on a full-query refresh after reconnect or a later targeted object/file read outside replica event handling.
 - Object file content bytes are never included in stream payloads.
 
-Atlas Core does not support mutating file bytes in place as a separate event category. If file bytes need to change, callers should delete and upload a file or use a later explicit replace operation.
+The 8-file cap is a pragmatic payload-size limit. It keeps event bytes and latency bounded while still covering typical small file changes, and maintainers may revisit it if telemetry shows a different common batch size.
+
+Atlas Core does not support mutating file bytes in place as a separate event category. If file bytes need to change under the current contract, callers should delete and upload a file or use the documented append operation.
 
 ## Publication Failures
 

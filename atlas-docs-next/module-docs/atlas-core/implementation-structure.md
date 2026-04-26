@@ -510,14 +510,14 @@ Recommended order:
 2. Add PostgreSQL connection handling, schema creation or verification, and readiness checks.
 3. Add filesystem object storage initialization and readiness checks.
 4. Define internal models, Core errors, pagination, and store interfaces.
-5. Implement PostgreSQL stores for entities, observations, tasks, objects, object files, and full-query support.
-6. Implement object file byte storage and path safety.
-7. Implement command catalog loading, validation, active catalog state, and startup materialization through the object store.
-8. Implement sighting catalog loading, validation, and active in-memory catalog state.
-9. Implement services with test-only store fakes and event publisher recorders.
-10. Implement HTTP DTOs, handlers, shared error serialization, and router wiring.
-11. Implement in-process event publishing and SSE stream handling.
-12. Implement Dockerfile, Docker Compose, `.env.example`, and the Python lifecycle CLI.
+5. Add PostgreSQL stores for entities, observations, tasks, objects, object files, and full-query support.
+6. Provide object file byte storage and path safety.
+7. Load and validate the command catalog, active catalog state, and startup materialization through the object store.
+8. Introduce sighting catalog loading, validation, and active in-memory catalog state.
+9. Provide services with test-only store fakes and event publisher recorders.
+10. Define HTTP DTOs, handlers, shared error serialization, and router wiring.
+11. Enable in-process event publishing and SSE stream handling.
+12. Configure Dockerfile, Docker Compose, `.env.example`, and the Python lifecycle CLI.
 13. Add the optional data fusion harness and baseline stack wiring.
 14. Add integration tests that run against real PostgreSQL and a temporary object file root.
 

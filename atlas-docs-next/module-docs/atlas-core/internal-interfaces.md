@@ -61,7 +61,7 @@ Expected responsibilities:
 - delete file bytes
 - stat file bytes
 - enforce storage-root safety
-- participate in transactions when metadata changes must stay consistent with another record
+- participate in database transactions when metadata changes must stay consistent with another record; filesystem bytes do not participate in ACID transactions and require ordering plus compensating cleanup
 - report object storage health for readiness
 
 Objects are the file-container system. Files for observations, command catalogs, tasks, or other records should be represented through object metadata and object file metadata, then linked to the owning record by contract.
@@ -100,9 +100,8 @@ Examples:
 
 Atlas Core should use explicit transaction boundaries for structured database changes. File byte writes need a simple consistency strategy because filesystem writes do not roll back automatically with database transactions.
 
-The exact transaction and cleanup rules belong in later contracts and implementation docs. They should protect normal runtime correctness, not create a long-term migration or rollback system.
+The object store owns ordering and compensating cleanup for byte writes around metadata transactions. These rules should protect normal runtime correctness without creating a long-term migration or rollback system.
 
 ## Settled Storage Shape
 
 Atlas Core uses one PostgreSQL database for structured records and metadata, plus one filesystem volume for object file bytes. There is no separate object database service in the initial architecture.
-

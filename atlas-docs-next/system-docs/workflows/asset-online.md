@@ -9,9 +9,9 @@ Exact entity payloads are defined in [`../../contracts/core-api/entities.md`](..
 1. Asset chooses a stable `entity_id` for the current operating model.
 2. Asset reads `GET /entities/{entity_id}`.
 3. If the entity exists, the asset treats it as the current server record.
-4. If the entity does not exist, the asset creates it with `POST /entities` using `type: "asset"`.
-5. If create returns `409 conflict`, the asset reads `GET /entities/{entity_id}` and reconciles.
-6. Asset updates heartbeat and state through `PATCH /entities/{entity_id}`.
+4. Otherwise, create it with `POST /entities` using `type: "asset"`.
+5. On `409 conflict`, read `GET /entities/{entity_id}` and reconcile.
+6. Heartbeat and state are updated through `PATCH /entities/{entity_id}`.
 7. Clients observe the change through `entity.created` or `entity.updated` stream events, then read the entity if they need current state.
 
 ## Notes

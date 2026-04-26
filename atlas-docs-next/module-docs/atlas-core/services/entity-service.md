@@ -17,11 +17,10 @@ API contract: [`../../../contracts/core-api/entities.md`](../../../contracts/cor
 
 Uses [`../stores/regular-record-store.md`](../stores/regular-record-store.md).
 
-The entity service should not access object files directly. Entity-related objects are queried through the object API using owner filters.
+The entity service should not access object files directly. Entity-related objects are queried through object service/store interfaces that implement the object API contract, such as methods accepting `owner_type=entity` and `owner_id={entity_id}` filters.
 
 ## Notes
 
 Tasks target assets, so task listing should be meaningful for asset entities.
 
 Exact component validation rules belong in data-model contracts when those are written.
-

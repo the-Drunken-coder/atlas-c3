@@ -157,6 +157,8 @@ Append is intended for append-only payloads such as observation sighting history
 
 The request body is a raw byte stream. Response body is the updated object file metadata.
 
+Append is not intrinsically idempotent in the current contract. Atlas Core does not de-duplicate append requests by `Idempotency-Key` or append sequence. After an ambiguous network failure, clients should reconcile by reading current observation/file state rather than blindly repeating the append when duplicate bytes would be harmful.
+
 Successful append behavior:
 
 - append bytes to the existing file content

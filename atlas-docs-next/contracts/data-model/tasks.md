@@ -13,8 +13,8 @@ Record-family context lives in [`record-families.md`](./record-families.md). API
 | `asset_id` | Target asset entity ID |
 | `command_catalog_object_id` | Pinned command catalog object used for validation |
 | `json` | Command, parameters, progress, result, and task metadata |
-| `created_at` | Core-created timestamp |
-| `updated_at` | Core-updated timestamp |
+| `created_at` | Core-created timestamp, serialized as UTC RFC 3339 such as `2026-01-01T00:00:00Z` |
+| `updated_at` | Core-updated timestamp, serialized as UTC RFC 3339 such as `2026-01-01T00:00:00Z` |
 
 Promoted fields should not be duplicated inside `json`.
 
@@ -45,7 +45,7 @@ Every task should have:
 - a command type
 - a pinned command catalog object ID
 
-During task creation, `command_catalog_object_id` is required and must match the active command catalog object used to validate `command.type` and `parameters`.
+During task creation, the client must not provide `command_catalog_object_id`. Core resolves the active command catalog object, validates `command.type` and `parameters` against the in-memory catalog, and writes the active catalog object ID onto the task.
 
 The target asset must include [`supported_commands`](./components/supported_commands.md). Task creation must fail unless `json.components.command.type` is listed in the target asset's `supported_commands.commands`.
 
@@ -107,8 +107,8 @@ API/runtime validation should enforce:
 
 - max 50-character `task_id`
 - target entity exists and is an asset
-- required `command_catalog_object_id` on create
-- `command_catalog_object_id` equals the active catalog object used for command validation at creation time
+- caller does not provide `command_catalog_object_id` on create
+- Core writes `command_catalog_object_id` from the active catalog object used for command validation at creation time
 - valid status transitions
 - `command.type` exists in the pinned command catalog
 - `parameters` match the pinned command catalog rules

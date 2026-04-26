@@ -39,14 +39,15 @@ Sensor entry fields:
 | --- | --- | --- | --- | --- |
 | `sensor_id` | string | yes | non-empty | Stable sensor identifier |
 | `type` | string | yes | non-empty | Sensor kind such as `camera`, `radar`, `lidar`, or `rf` |
-| `horizontal_fov_deg` | number | no | finite | Horizontal field of view in degrees |
-| `vertical_fov_deg` | number | no | finite | Vertical field of view in degrees |
-| `yaw_deg` | number | no | finite | Yaw relative to the platform in degrees |
-| `pitch_deg` | number | no | finite | Pitch relative to the platform in degrees |
-| `roll_deg` | number | no | finite | Roll relative to the platform in degrees |
+| `horizontal_fov_deg` | number | no | `0 < x <= 180` | Horizontal field of view in degrees |
+| `vertical_fov_deg` | number | no | `0 < x <= 180` | Vertical field of view in degrees |
+| `yaw_deg` | number | no | `-180 <= x <= 180` | Yaw relative to the platform in degrees |
+| `pitch_deg` | number | no | `-90 <= x <= 90` | Pitch relative to the platform in degrees |
+| `roll_deg` | number | no | `-180 <= x <= 180` | Roll relative to the platform in degrees |
 
 ## Usage Notes
 
 - On an asset, this component describes onboard sensors.
 - On a track, this component may capture sensor context associated with the current track state.
+- FOV and orientation values must stay within the bounds above so clients can render and validate sensor context consistently.
 - If asset sensor inventory and track observation context diverge too much later, they should split into separate components through an explicit contract update.

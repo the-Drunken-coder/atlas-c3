@@ -24,7 +24,7 @@ Unknown component keys should be rejected unless they use the `custom_*` prefix.
 
 - are allowed as extension data
 - must be JSON objects
-- receive only lightweight validation for basic JSON shape and size limits
+- receive only lightweight validation: max 16 KiB serialized JSON, max nesting depth 8, max 100 object fields total, and max 100 characters per key
 - are not indexed or queried directly
 - are not stable shared contracts
 

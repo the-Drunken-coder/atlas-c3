@@ -18,9 +18,11 @@ Trusted clients include:
 
 ## Core API Access
 
-All Core endpoints are reachable by trusted clients on the configured network.
+In no-auth deployments, Core endpoints must be reachable only from a private or trusted network boundary, such as localhost, a VPC, a VPN, or a CIDR-restricted firewall.
 
-Health and readiness endpoints do not need special public/private handling.
+Health and readiness endpoints must be bound to the same private network boundary, or to explicitly listed management subnets. They should not be exposed publicly just because they do not mutate state.
+
+Deployments should terminate TLS at the edge of the trusted network. mTLS inside the private network is allowed when the deployment environment already supports it, but Atlas Core should not add fake application-layer auth in place of the network boundary.
 
 There are no:
 
