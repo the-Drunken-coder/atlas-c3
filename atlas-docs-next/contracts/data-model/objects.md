@@ -31,6 +31,17 @@ Object JSON may contain:
 
 `owner_type` and `owner_id` are promoted fields, not JSON metadata.
 
+## Canonical Object Types
+
+Shared object `type` values:
+
+| Type | Owner | Purpose |
+| --- | --- | --- |
+| `observation_sighting_history` | `owner_type: "observation"` | Append-only JSON Lines sighting history for one observation |
+| `observation_media` | `owner_type: "observation"` | Media or file payloads related to an observation |
+| `fusion_provenance` | `owner_type: "entity"` for track entities | Detailed fusion reasoning for a track |
+| `command_catalog` | `owner_type: "system"` | Materialized command catalog payload |
+
 ## Object Ownership
 
 Objects are the authoritative owner of relationship links to records that use them.
@@ -83,7 +94,7 @@ Clients should rely on **`GET /objects/{object_id}`**, **`GET /objects/{object_i
 ## Expected Object Uses
 
 - observation media
-- observation sighting history JSONL
+- observation sighting history JSONL through `type: "observation_sighting_history"`
 - command catalog payloads
 - task attachments or results
 - geofeature media such as heatmaps

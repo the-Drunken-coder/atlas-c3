@@ -63,7 +63,7 @@ Expected observation helper:
 
 - `observations.reportSighting(observationId, sighting, options?)` - validates the sighting shape, fills `observed_at` when omitted, preserves caller-provided timestamps, appends one JSON Lines sighting entry to the observation-owned sighting history object file, and patches the observation `json.latest_sighting` plus `json.sightings_object_id`.
 
-The helper should create or use the observation-owned sighting history object/file. It must use the generic object-file append API rather than requiring an observation-specific Core append endpoint. If file bytes are part of the reported evidence, the SDK should store them through normal observation-owned objects and report a separate `file` sighting that references the object and file IDs.
+The helper should create or use the observation-owned sighting history object/file with object `type: "observation_sighting_history"`. It must use the generic object-file append API rather than requiring an observation-specific Core append endpoint. If file bytes are part of the reported evidence, the SDK should store them through normal observation-owned objects and report a separate `file` sighting that references the object and file IDs.
 
 Object and file helpers should hide multipart upload details from SDK callers.
 

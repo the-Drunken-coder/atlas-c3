@@ -93,6 +93,8 @@ Required fields: `object_id`, `type`, `owner_type`, `owner_id`, `json`.
 
 The owner must exist unless `owner_type` is `system`. System owners are limited to Core-defined identifiers such as `active_command_catalog`.
 
+For `type: "observation_sighting_history"`, the owner must be the observation whose sighting history is stored in the object: `owner_type: "observation"` and `owner_id: "{observation_id}"`. This object type is intended for append-only JSON Lines sighting history.
+
 For `type: "fusion_provenance"`, the owner should be a track entity. The object file content should be structured JSON containing detailed fusion reasoning.
 
 Failures:

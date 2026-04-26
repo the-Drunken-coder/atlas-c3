@@ -59,6 +59,7 @@ Canonical components:
 - [`sensor_refs`](./components/sensor_refs.md)
 - [`status`](./components/status.md)
 - [`supported_commands`](./components/supported_commands.md)
+- [`fusion_summary`](./components/fusion_summary.md)
 - `custom_*`
 
 Asset entities must include `json.components.supported_commands`. Assets without this component are invalid. An asset with an empty command list is valid but cannot receive tasks.

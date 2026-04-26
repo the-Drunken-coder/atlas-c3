@@ -10,7 +10,7 @@ API contract: [`../../../contracts/core-api/observations.md`](../../../contracts
 - validate `source_asset_id` references an entity whose `type` is `asset`
 - validate observation JSON shape, including required `json.state`
 - validate `json.latest_sighting` against the active sighting catalog when present
-- when `json.latest_sighting` is present, validate `json.sightings_object_id` atomically with it: the object must exist, use `owner_type=observation`, use `owner_id={observation_id}`, and have the expected sighting-history object type
+- when `json.latest_sighting` is present, validate `json.sightings_object_id` atomically with it: the object must exist, use `type=observation_sighting_history`, use `owner_type=observation`, and use `owner_id={observation_id}`
 - require caller-supplied `observation_id` on create
 - enforce first-class observation behavior
 - coordinate observation persistence through the regular record store

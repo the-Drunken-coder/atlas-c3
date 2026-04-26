@@ -78,7 +78,7 @@ Request body:
 
 Required fields: `observation_id`, `source_asset_id`, `json.state`.
 
-`json.state` must be one of `active`, `inactive`, or `ended`. `json.latest_sighting` and `json.sightings_object_id` may be absent until the first sighting is reported. When `json.latest_sighting` is present, it must validate against the active sighting catalog.
+`json.state` must be one of `active`, `inactive`, or `ended`. `json.latest_sighting` and `json.sightings_object_id` may be absent until the first sighting is reported. When `json.latest_sighting` is present, it must validate against the active sighting catalog. When `json.sightings_object_id` is present, it must reference an observation-owned object with `type: "observation_sighting_history"`, `owner_type: "observation"`, and `owner_id` equal to the observation ID.
 
 Failures:
 
@@ -103,7 +103,7 @@ Immutable fields:
 - `created_at`
 - `updated_at`
 
-PATCH follows named-section replacement rules. Replacing `json.latest_sighting` replaces that sighting object as a whole and does not deep-merge into the existing object. Replacing `json.state` must use one of the allowed observation states. Replacing `json.latest_sighting` must validate against the active sighting catalog.
+PATCH follows named-section replacement rules. Replacing `json.latest_sighting` replaces that sighting object as a whole and does not deep-merge into the existing object. Replacing `json.state` must use one of the allowed observation states. Replacing `json.latest_sighting` must validate against the active sighting catalog. Replacing `json.sightings_object_id` must reference an observation-owned `observation_sighting_history` object.
 
 There is no finalize or close endpoint. Observation lifecycle is represented by updating `json.state`; if an asset stops updating an observation, the last state remains available until deleted or reset.
 

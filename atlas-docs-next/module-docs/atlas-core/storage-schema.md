@@ -48,7 +48,7 @@ Indexes:
 - `observations_source_asset_idx` on `source_asset_id`
 - `observations_updated_at_idx` on `updated_at desc, observation_id asc`
 
-Service validation must ensure `source_asset_id` references an entity whose `type` is `asset`, `json.state` is valid, and `json.latest_sighting` matches the active sighting catalog when present.
+Service validation must ensure `source_asset_id` references an entity whose `type` is `asset`, `json.state` is valid, `json.latest_sighting` matches the active sighting catalog when present, and `json.sightings_object_id` references an observation-owned `observation_sighting_history` object when present.
 
 ### `tasks`
 

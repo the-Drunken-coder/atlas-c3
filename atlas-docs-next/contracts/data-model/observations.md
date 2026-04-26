@@ -63,7 +63,7 @@ A sighting is a timestamped measurement or report within an observation.
 
 Full sighting history should live in an observation-owned object file as append-only JSON Lines. The observation JSON stores only the latest sighting and the ID of the object that owns the sighting history file.
 
-The object relationship remains authoritative through `objects.owner_type = "observation"` and `objects.owner_id = "{observation_id}"`.
+The sighting-history object must use `type: "observation_sighting_history"`, `owner_type: "observation"`, and `owner_id: "{observation_id}"`. The object relationship remains authoritative through `objects.owner_type` and `objects.owner_id`.
 
 Example sighting history JSONL:
 

@@ -114,7 +114,7 @@ Delete events do not include the deleted resource snapshot by default. The envel
 
 Object metadata create, update, and delete operations emit object events.
 
-File uploads and deletions also emit `object.updated` because they change object/file metadata visible through the object API.
+File uploads, appends, and deletions also emit `object.updated` because they change object/file metadata visible through the object API.
 
 Object event `data` should use:
 
