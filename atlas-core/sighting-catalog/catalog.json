@@ -1,0 +1,100 @@
+{
+  "catalog_id": "default-sighting-catalog",
+  "sighting_kinds": [
+    {
+      "kind": "position",
+      "display_name": "Position",
+      "description": "Resolved target position sighting.",
+      "data_schema": {
+        "type": "object",
+        "required": ["position"],
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "type": "object",
+            "required": ["latitude", "longitude"],
+            "additionalProperties": false,
+            "properties": {
+              "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+              "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+              "altitude_m": { "type": "number" },
+              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+            }
+          },
+          "speed_m_s": { "type": "number" },
+          "heading_deg": { "type": "number", "minimum": 0, "maximum": 360 }
+        }
+      }
+    },
+    {
+      "kind": "line_of_sight",
+      "display_name": "Line Of Sight",
+      "description": "Observer-relative azimuth and elevation measurement.",
+      "data_schema": {
+        "type": "object",
+        "required": ["observer_latitude", "observer_longitude", "azimuth", "elevation"],
+        "additionalProperties": false,
+        "properties": {
+          "observer_latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+          "observer_longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+          "observer_altitude_m": { "type": "number" },
+          "azimuth": {
+            "type": "object",
+            "required": ["deg"],
+            "additionalProperties": false,
+            "properties": {
+              "deg": { "type": "number", "minimum": 0, "maximum": 360 },
+              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+            }
+          },
+          "elevation": {
+            "type": "object",
+            "required": ["deg"],
+            "additionalProperties": false,
+            "properties": {
+              "deg": { "type": "number", "minimum": -90, "maximum": 90 },
+              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+            }
+          },
+          "range": {
+            "type": "object",
+            "required": ["m"],
+            "additionalProperties": false,
+            "properties": {
+              "m": { "type": "number", "minimum": 0 },
+              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "file",
+      "display_name": "File",
+      "description": "File-backed evidence reference.",
+      "data_schema": {
+        "type": "object",
+        "required": ["object_id", "file_id", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "object_id": { "type": "string", "minLength": 1, "maxLength": 50 },
+          "file_id": { "type": "string", "minLength": 1, "maxLength": 50 },
+          "role": { "type": "string", "enum": ["source_image", "source_video_clip", "sensor_payload", "analysis_artifact"] }
+        }
+      }
+    },
+    {
+      "kind": "analysis",
+      "display_name": "Analysis",
+      "description": "Analysis metadata sighting.",
+      "data_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "classification": { "type": "string" },
+          "classification_confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  ]
+}
