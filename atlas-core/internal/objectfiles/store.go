@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 )
 
@@ -124,7 +124,8 @@ func (s *Store) Stage(ctx context.Context, objectID, fileID string, reader io.Re
 	if err := temp.Sync(); err != nil {
 		return "", 0, "", err
 	}
-	return temp.Name(), size, normalizeContentType(detectedType), nil
+	normalizedType, _ := mediatype.NormalizeContentType(detectedType)
+	return temp.Name(), size, normalizedType, nil
 }
 
 func (s *Store) Promote(stagePath, logicalPath string) error {
@@ -227,22 +228,7 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (in
 		}
 		return 0, err
 	}
-	st, err := os.Stat(target)
-	if err != nil {
-		return 0, err
-	}
-	return st.Size(), nil
-}
-
-func normalizeContentType(value string) string {
-	if value == "" {
-		return "application/octet-stream"
-	}
-	mediaType, _, err := mime.ParseMediaType(value)
-	if err != nil {
-		return value
-	}
-	return mediaType
+	return preSize + written, nil
 }
 
 func SafeUsageHint(value string) string {

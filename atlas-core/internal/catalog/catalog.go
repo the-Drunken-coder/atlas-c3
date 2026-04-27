@@ -55,8 +55,8 @@ func Load(path string) (Catalog, error) {
 	if err := Validate(catalog); err != nil {
 		return Catalog{}, err
 	}
-	catalog.ContentHash = contentHashOfBytes(raw)
-	catalog.ObjectID = ObjectIDFromContentBytes(raw)
+	catalog.ContentHash = ContentHashOfBytes(raw)
+	catalog.ObjectID = ObjectIDFromContentHash(catalog.ContentHash)
 	catalog.ByType = map[string]Command{}
 	for _, command := range catalog.Commands {
 		catalog.ByType[command.Type] = command
@@ -64,15 +64,20 @@ func Load(path string) (Catalog, error) {
 	return catalog, nil
 }
 
-// contentHashOfBytes returns the first 8 bytes of the SHA-256 of raw as hex, matching [Load] and [ObjectIDFromContentBytes].
-func contentHashOfBytes(raw []byte) string {
+// ContentHashOfBytes returns the first 8 bytes of the SHA-256 of raw as hex, matching [Load] and [ObjectIDFromContentBytes].
+func ContentHashOfBytes(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:8])
 }
 
+// ObjectIDFromContentHash returns the object_id command-catalog-<8-hex> for a content hash.
+func ObjectIDFromContentHash(hash string) string {
+	return fmt.Sprintf("command-catalog-%s", hash)
+}
+
 // ObjectIDFromContentBytes returns the object_id command-catalog-<8-hex> for a catalog JSON body, matching [Load].
 func ObjectIDFromContentBytes(raw []byte) string {
-	return fmt.Sprintf("command-catalog-%s", contentHashOfBytes(raw))
+	return ObjectIDFromContentHash(ContentHashOfBytes(raw))
 }
 
 func Validate(catalog Catalog) error {

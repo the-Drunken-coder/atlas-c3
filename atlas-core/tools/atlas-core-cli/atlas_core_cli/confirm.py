@@ -22,9 +22,9 @@ def require_confirmation(action: str, already_confirmed: bool) -> None:
         return
     try:
         typed = input(f"{action} is destructive. Type YES to continue: ").strip()
-    except EOFError:
-        raise SystemExit("Confirmation failed: no input available (use --yes to confirm non-interactively).")
-    except KeyboardInterrupt:
-        raise SystemExit("Confirmation aborted.")
+    except EOFError as err:
+        raise SystemExit("Confirmation failed: no input available (use --yes to confirm non-interactively).") from err
+    except KeyboardInterrupt as err:
+        raise SystemExit("Confirmation aborted.") from err
     if typed != "YES":
         raise SystemExit("Confirmation failed.")

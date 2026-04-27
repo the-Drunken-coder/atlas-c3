@@ -17,6 +17,7 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/catalog"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/events"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/logging"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service"
@@ -36,10 +37,6 @@ type Dependencies struct {
 	Logger     *logging.Logger
 	Readiness  func(context.Context) (model.ReadinessResponse, int)
 	Descriptor func() (model.ServiceDescriptor, error)
-}
-
-type configLike interface {
-	GetAllowedOrigins() []string
 }
 
 type Router struct {
@@ -556,7 +553,7 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
-				r.writeError(w, req, perr)
+				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			fileID = v
@@ -564,7 +561,7 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
-				r.writeError(w, req, perr)
+				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			usageHint = v
@@ -572,7 +569,7 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
-				r.writeError(w, req, perr)
+				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			contentTypeOverride = v
@@ -605,9 +602,14 @@ parts:
 		return
 	}
 	defer filePart.Close()
-	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: filePartContentType(filePart, contentTypeOverride)}, Reader: filePart, MaxBytes: maxFile})
+	contentType, err := filePartContentType(filePart, contentTypeOverride)
 	if err != nil {
 		r.writeError(w, req, err)
+		return
+	}
+	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: contentType}, Reader: filePart, MaxBytes: maxFile})
+	if err != nil {
+		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -635,18 +637,23 @@ func (r *Router) mapChunkedReadError(err error) error {
 	if errors.As(err, &mbe) {
 		return model.PayloadTooLarge("request body or upload exceeds size limit")
 	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return model.ValidationError(model.FieldError{Field: "body", Code: "invalid_value", Message: "request body is incomplete or truncated"})
+	}
 	return err
 }
 
-func filePartContentType(p *multipart.Part, formOverride string) string {
+func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
 	if formOverride != "" {
-		return formOverride
+		normalized, valid := mediatype.NormalizeContentType(formOverride)
+		if !valid {
+			return "", model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "content_type must be a valid media type"})
+		}
+		return normalized, nil
 	}
 	ct := p.Header.Get("Content-Type")
-	if ct == "" {
-		return "application/octet-stream"
-	}
-	return strings.TrimSpace(ct)
+	normalized, _ := mediatype.NormalizeContentType(ct)
+	return normalized, nil
 }
 
 func (r *Router) handleGetObjectFile(w http.ResponseWriter, req *http.Request) {
@@ -680,7 +687,8 @@ func (r *Router) handleGetObjectFileContent(w http.ResponseWriter, req *http.Req
 		return
 	}
 	defer rc.Close()
-	w.Header().Set("Content-Type", meta.ContentType)
+	contentType, _ := mediatype.NormalizeContentType(meta.ContentType)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", meta.SizeBytes))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, rc)
