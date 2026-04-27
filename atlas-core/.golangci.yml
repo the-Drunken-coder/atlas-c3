@@ -27,8 +27,8 @@ linters:
       - legacy
       - std-error-handling
     paths:
-      - data-fusion/harness/runner
-      - tools
+      - ^data-fusion/harness/runner
+      - ^tools
       - third_party$
       - builtin$
       - examples$

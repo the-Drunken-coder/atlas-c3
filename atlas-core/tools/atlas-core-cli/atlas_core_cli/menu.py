@@ -19,7 +19,11 @@ def choose_action() -> str:
     for index, action in enumerate(actions, start=1):
         print(f"  {index}. {action}")
     while True:
-        selection = input("Enter selection [1-3]: ").strip()
+        try:
+            selection = input("Enter selection [1-3]: ").strip()
+        except EOFError:
+            print()
+            return "shutdown"
         if selection in {"1", "2", "3"}:
             return actions[int(selection) - 1]
         print("Invalid selection.")

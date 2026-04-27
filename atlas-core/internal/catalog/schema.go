@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 )
@@ -21,7 +22,27 @@ func ValidateSchema(schema map[string]any, path string) error {
 			fields = append(fields, model.FieldError{Field: path + "." + key, Code: "invalid_value", Message: "unsupported schema keyword"})
 		}
 	}
-	schemaType, _ := schema["type"].(string)
+	schemaTypeRaw, hasType := schema["type"]
+	var schemaType string
+	if hasType {
+		var ok bool
+		if schemaType, ok = schemaTypeRaw.(string); !ok {
+			fields = append(fields, model.FieldError{Field: path + ".type", Code: "invalid_type", Message: "type must be a string"})
+		}
+	}
+	hasConstraintKeywords := false
+	for key := range schema {
+		if key == "type" {
+			continue
+		}
+		if _, supported := supportedSchemaKeywords[key]; supported {
+			hasConstraintKeywords = true
+			break
+		}
+	}
+	if !hasType && hasConstraintKeywords {
+		fields = append(fields, model.FieldError{Field: path + ".type", Code: "required", Message: "type is required when schema defines properties or constraints"})
+	}
 	switch schemaType {
 	case "object":
 		if properties, ok := schema["properties"].(map[string]any); ok {
@@ -122,10 +143,11 @@ func ValidateValue(schema map[string]any, value any, path string) error {
 		if !ok {
 			return model.ValidationError(model.FieldError{Field: path, Code: "invalid_type", Message: "must be a string"})
 		}
-		if minLength, ok := numberToInt(schema["minLength"]); ok && len(actual) < minLength {
+		length := utf8.RuneCountInString(actual)
+		if minLength, ok := numberToInt(schema["minLength"]); ok && length < minLength {
 			return model.ValidationError(model.FieldError{Field: path, Code: "out_of_range", Message: "string shorter than minLength"})
 		}
-		if maxLength, ok := numberToInt(schema["maxLength"]); ok && len(actual) > maxLength {
+		if maxLength, ok := numberToInt(schema["maxLength"]); ok && length > maxLength {
 			return model.ValidationError(model.FieldError{Field: path, Code: "out_of_range", Message: "string longer than maxLength"})
 		}
 		if pattern, ok := schema["pattern"].(string); ok {
@@ -196,7 +218,10 @@ func toStringSlice(value any) ([]string, bool) {
 func numberToInt(value any) (int, bool) {
 	switch v := value.(type) {
 	case float64:
-		return int(v), true
+		if v == float64(int(v)) {
+			return int(v), true
+		}
+		return 0, false
 	case int:
 		return v, true
 	default:

@@ -335,15 +335,21 @@ func ValidateCustomComponent(name string, value any) *FieldError {
 	if CountJSONFields(obj) > 100 {
 		return &FieldError{Field: name, Code: "out_of_range", Message: "custom component exceeds max field count 100"}
 	}
-	var walk func(map[string]any) *FieldError
-	walk = func(node map[string]any) *FieldError {
-		for key, child := range node {
-			if len(key) > 100 {
-				return &FieldError{Field: name, Code: "too_long", Message: "custom component key exceeds 100 characters"}
+	var walk func(any) *FieldError
+	walk = func(val any) *FieldError {
+		switch node := val.(type) {
+		case map[string]any:
+			for key, child := range node {
+				if len(key) > 100 {
+					return &FieldError{Field: name, Code: "too_long", Message: "custom component key exceeds 100 characters"}
+				}
+				if err := walk(child); err != nil {
+					return err
+				}
 			}
-			nested, ok := child.(map[string]any)
-			if ok {
-				if err := walk(nested); err != nil {
+		case []any:
+			for _, child := range node {
+				if err := walk(child); err != nil {
 					return err
 				}
 			}

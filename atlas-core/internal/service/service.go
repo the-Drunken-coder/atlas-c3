@@ -471,10 +471,11 @@ func (s *Services) publish(ctx context.Context, resourceType, mutation, resource
 
 func (s *Services) publishObject(ctx context.Context, mutation, objectID string, object model.Object) {
 	files, _ := s.stores.ListObjectFilesForObject(ctx, objectID)
+	totalFiles := len(files)
 	if len(files) > 8 {
 		files = files[:8]
 	}
-	payload := model.ObjectEventResource{Object: object, FileCount: len(files), AffectedFiles: files}
+	payload := model.ObjectEventResource{Object: object, FileCount: totalFiles, AffectedFiles: files}
 	s.publish(ctx, "object", mutation, objectID, payload)
 }
 

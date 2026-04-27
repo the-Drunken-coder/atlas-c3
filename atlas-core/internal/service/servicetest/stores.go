@@ -131,8 +131,19 @@ func (m *MemoryStore) ListObservations(_ context.Context, filter store.Observati
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	items := []model.Observation{}
+	var updatedAfter time.Time
+	if filter.UpdatedAfter != "" {
+		var err error
+		updatedAfter, err = time.Parse(time.RFC3339Nano, filter.UpdatedAfter)
+		if err != nil {
+			return nil, 0, model.ValidationError(model.FieldError{Field: "updated_after", Code: "invalid_format", Message: "must be RFC3339 format"})
+		}
+	}
 	for _, item := range m.Observations {
 		if filter.SourceAssetID != "" && item.SourceAssetID != filter.SourceAssetID {
+			continue
+		}
+		if filter.UpdatedAfter != "" && item.UpdatedAt.Before(updatedAfter) {
 			continue
 		}
 		items = append(items, item)
@@ -342,6 +353,13 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if file.ContentType == "" {
 		file.ContentType = "application/octet-stream"
 	}
+	now := time.Now().UTC()
+	if file.CreatedAt.IsZero() {
+		file.CreatedAt = now
+	}
+	if file.UpdatedAt.IsZero() {
+		file.UpdatedAt = now
+	}
 	m.ObjectFiles[file.FileID] = file
 	m.FileBytes[file.FileID] = bytesValue
 	return file, nil
@@ -376,7 +394,7 @@ func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID strin
 	}
 	m.FileBytes[fileID] = append(m.FileBytes[fileID], bytesValue...)
 	file.SizeBytes = int64(len(m.FileBytes[fileID]))
-	file.UpdatedAt = file.UpdatedAt.Add(time.Second)
+	file.UpdatedAt = time.Now().UTC()
 	m.ObjectFiles[fileID] = file
 	return file, nil
 }

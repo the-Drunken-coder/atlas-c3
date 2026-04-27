@@ -27,7 +27,6 @@ type Config struct {
 func Load(rootDir string) (Config, error) {
 	cfg := Config{
 		Host:                envOrDefault("ATLAS_CORE_HOST", "0.0.0.0"),
-		Port:                envIntOrDefault("ATLAS_CORE_PORT", 8080),
 		// ATLAS_CORE_DATABASE_URL must be supplied explicitly. There is no
 		// default — a hard-coded localhost fallback would silently let dev or
 		// prod processes connect to an unintended database. The compose file
@@ -40,11 +39,34 @@ func Load(rootDir string) (Config, error) {
 		AllowedOrigins:      model.CleanOriginList(envOrDefault("ATLAS_CORE_ALLOWED_ORIGINS", "http://localhost:5173")),
 		LogLevel:            strings.ToLower(envOrDefault("ATLAS_CORE_LOG_LEVEL", "info")),
 		Version:             envOrDefault("ATLAS_CORE_VERSION", "dev"),
-		MaxUploadBytes:      envInt64OrDefault("ATLAS_CORE_MAX_UPLOAD_BYTES", 16*1024*1024),
 		DataFusionStack:     envOrDefault("ATLAS_DATA_FUSION_STACK", ""),
 	}
+
+	if raw := strings.TrimSpace(os.Getenv("ATLAS_CORE_PORT")); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid integer for ATLAS_CORE_PORT: %v", err)
+		}
+		cfg.Port = port
+	} else {
+		cfg.Port = 8080
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("ATLAS_CORE_MAX_UPLOAD_BYTES")); raw != "" {
+		maxBytes, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid int64 for ATLAS_CORE_MAX_UPLOAD_BYTES: %v", err)
+		}
+		cfg.MaxUploadBytes = maxBytes
+	} else {
+		cfg.MaxUploadBytes = 16 * 1024 * 1024
+	}
+
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return Config{}, fmt.Errorf("ATLAS_CORE_PORT must be between 1 and 65535")
+	}
+	if cfg.MaxUploadBytes <= 0 {
+		return Config{}, fmt.Errorf("ATLAS_CORE_MAX_UPLOAD_BYTES must be positive")
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("ATLAS_CORE_DATABASE_URL is required")
@@ -62,30 +84,7 @@ func envOrDefault(name, fallback string) string {
 	return fallback
 }
 
-func envIntOrDefault(name string, fallback int) int {
-	raw := strings.TrimSpace(os.Getenv(name))
-	if raw == "" {
-		return fallback
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return fallback
-	}
-	return value
-}
-
-func envInt64OrDefault(name string, fallback int64) int64 {
-	raw := strings.TrimSpace(os.Getenv(name))
-	if raw == "" {
-		return fallback
-	}
-	value, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		return fallback
-	}
-	return value
-}
-
 func (c Config) GetAllowedOrigins() []string {
 	return append([]string(nil), c.AllowedOrigins...)
 }
+

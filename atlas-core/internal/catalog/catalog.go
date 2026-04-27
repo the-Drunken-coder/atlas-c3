@@ -36,6 +36,62 @@ type Catalog struct {
 	ObjectID    string             `json:"-"`
 }
 
+func cloneJSONValue(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		return cloneJSONMap(x)
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = cloneJSONValue(e)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func cloneJSONMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = cloneJSONValue(v)
+	}
+	return out
+}
+
+func (c Catalog) Clone() Catalog {
+	out := c
+	if c.Commands != nil {
+		out.Commands = make([]Command, len(c.Commands))
+		copy(out.Commands, c.Commands)
+		for i := range out.Commands {
+			out.Commands[i].ParametersSchema = cloneJSONMap(out.Commands[i].ParametersSchema)
+		}
+	}
+	if c.Metadata != nil {
+		out.Metadata = make(map[string]any, len(c.Metadata))
+		for k, v := range c.Metadata {
+			out.Metadata[k] = cloneJSONValue(v)
+		}
+	}
+	if c.Raw != nil {
+		out.Raw = make([]byte, len(c.Raw))
+		copy(out.Raw, c.Raw)
+	}
+	if c.ByType != nil {
+		out.ByType = make(map[string]Command, len(c.ByType))
+		for k, v := range c.ByType {
+			cmd := v
+			cmd.ParametersSchema = cloneJSONMap(v.ParametersSchema)
+			out.ByType[k] = cmd
+		}
+	}
+	return out
+}
+
 type Active struct {
 	mu      sync.RWMutex
 	catalog Catalog
@@ -126,7 +182,7 @@ func Validate(catalog Catalog) error {
 func (a *Active) Set(catalog Catalog) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.catalog = catalog
+	a.catalog = catalog.Clone()
 	a.ready = true
 }
 
@@ -146,7 +202,10 @@ func (a *Active) Ready() bool {
 func (a *Active) Get() (Catalog, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.catalog, a.ready
+	if !a.ready {
+		return Catalog{}, false
+	}
+	return a.catalog.Clone(), true
 }
 
 func Materialize(ctx context.Context, stores store.ObjectStore, catalog Catalog) (Catalog, error) {

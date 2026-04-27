@@ -21,3 +21,10 @@ func TestParsePaginationRejectsBadLimit(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestParsePaginationRejectsBadOffset(t *testing.T) {
+	_, err := ParsePagination(url.Values{"offset": []string{"-1"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
