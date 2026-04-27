@@ -30,6 +30,19 @@ func ValidateSchema(schema map[string]any, path string) error {
 			fields = append(fields, model.FieldError{Field: path + ".type", Code: "invalid_type", Message: "type must be a string"})
 		}
 	}
+	hasConstraintKeywords := false
+	for key := range schema {
+		if key == "type" {
+			continue
+		}
+		if _, supported := supportedSchemaKeywords[key]; supported {
+			hasConstraintKeywords = true
+			break
+		}
+	}
+	if schemaType == "" && hasConstraintKeywords {
+		fields = append(fields, model.FieldError{Field: path + ".type", Code: "required", Message: "type is required when schema defines properties or constraints"})
+	}
 	switch schemaType {
 	case "object":
 		if properties, ok := schema["properties"].(map[string]any); ok {

@@ -22,3 +22,10 @@ func TestValidateValueAcceptsConfiguredObject(t *testing.T) {
 		t.Fatalf("expected value to validate: %v", err)
 	}
 }
+
+func TestValidateSchemaRequiresTypeWhenConstraintsPresent(t *testing.T) {
+	err := ValidateSchema(map[string]any{"minimum": 1.0}, "schema")
+	if err == nil {
+		t.Fatal("expected type required error for schema with constraints but no type")
+	}
+}

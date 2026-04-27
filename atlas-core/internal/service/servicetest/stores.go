@@ -131,18 +131,20 @@ func (m *MemoryStore) ListObservations(_ context.Context, filter store.Observati
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	items := []model.Observation{}
+	var updatedAfter time.Time
+	if filter.UpdatedAfter != "" {
+		var err error
+		updatedAfter, err = time.Parse(time.RFC3339Nano, filter.UpdatedAfter)
+		if err != nil {
+			return nil, 0, model.ValidationError(model.FieldError{Field: "updated_after", Code: "invalid_format", Message: "must be RFC3339 format"})
+		}
+	}
 	for _, item := range m.Observations {
 		if filter.SourceAssetID != "" && item.SourceAssetID != filter.SourceAssetID {
 			continue
 		}
-		if filter.UpdatedAfter != "" {
-			t, err := time.Parse(time.RFC3339Nano, filter.UpdatedAfter)
-			if err != nil {
-				return nil, 0, model.ValidationError(model.FieldError{Field: "updated_after", Code: "invalid_format", Message: "must be RFC3339 format"})
-			}
-			if !item.UpdatedAt.After(t) {
-				continue
-			}
+		if filter.UpdatedAfter != "" && item.UpdatedAt.Before(updatedAfter) {
+			continue
 		}
 		items = append(items, item)
 	}

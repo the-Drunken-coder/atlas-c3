@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,10 +19,30 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 )
 
+func resolveRootDir() (string, error) {
+	if d := strings.TrimSpace(os.Getenv("ATLAS_CORE_ROOT_DIR")); d != "" {
+		abs, err := filepath.Abs(d)
+		if err != nil {
+			return "", fmt.Errorf("ATLAS_CORE_ROOT_DIR: %w", err)
+		}
+		return abs, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("ATLAS_CORE_ROOT_DIR is not set and could not read executable path: %w", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", fmt.Errorf("ATLAS_CORE_ROOT_DIR is not set and could not resolve executable path: %w", err)
+	}
+	return filepath.Clean(filepath.Dir(exe)), nil
+}
+
 func main() {
-	rootDir := os.Getenv("ATLAS_CORE_ROOT_DIR")
-	if rootDir == "" {
-		rootDir, _ = os.Getwd()
+	rootDir, err := resolveRootDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	cfg, err := config.Load(rootDir)
 	if err != nil {
