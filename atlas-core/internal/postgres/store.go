@@ -43,7 +43,7 @@ func (s *Store) StorageStatus(context.Context) model.DependencyStatus {
 }
 
 func (s *Store) CreateEntity(ctx context.Context, entity model.Entity) (model.Entity, error) {
-	return entity, s.execUpsert(ctx, `INSERT INTO entities (entity_id, type, subtype, alias, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, entity.EntityID, entity.Type, nullString(entity.Subtype), nullString(entity.Alias), mustJSON(entity.JSON), entity.CreatedAt, entity.UpdatedAt)
+	return entity, s.execUpsert(ctx, `INSERT INTO entities (entity_id, type, subtype, alias, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, "entity", entity.EntityID, entity.EntityID, entity.Type, nullString(entity.Subtype), nullString(entity.Alias), mustJSON(entity.JSON), entity.CreatedAt, entity.UpdatedAt)
 }
 
 func (s *Store) GetEntity(ctx context.Context, id string) (model.Entity, error) {
@@ -118,7 +118,7 @@ func (s *Store) CountEntityDependents(ctx context.Context, id string) (map[strin
 }
 
 func (s *Store) CreateObservation(ctx context.Context, observation model.Observation) (model.Observation, error) {
-	return observation, s.execUpsert(ctx, `INSERT INTO observations (observation_id, source_asset_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)`, observation.ObservationID, observation.SourceAssetID, mustJSON(observation.JSON), observation.CreatedAt, observation.UpdatedAt)
+	return observation, s.execUpsert(ctx, `INSERT INTO observations (observation_id, source_asset_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)`, "observation", observation.ObservationID, observation.ObservationID, observation.SourceAssetID, mustJSON(observation.JSON), observation.CreatedAt, observation.UpdatedAt)
 }
 
 func (s *Store) GetObservation(ctx context.Context, id string) (model.Observation, error) {
@@ -195,7 +195,7 @@ func (s *Store) DeleteObservation(ctx context.Context, id string) error {
 }
 
 func (s *Store) CreateTask(ctx context.Context, task model.Task) (model.Task, error) {
-	return task, s.execUpsert(ctx, `INSERT INTO tasks (task_id, status, asset_id, command_catalog_object_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, task.TaskID, task.Status, task.AssetID, task.CommandCatalogObjectID, mustJSON(task.JSON), task.CreatedAt, task.UpdatedAt)
+	return task, s.execUpsert(ctx, `INSERT INTO tasks (task_id, status, asset_id, command_catalog_object_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, "task", task.TaskID, task.TaskID, task.Status, task.AssetID, task.CommandCatalogObjectID, mustJSON(task.JSON), task.CreatedAt, task.UpdatedAt)
 }
 
 func (s *Store) GetTask(ctx context.Context, id string) (model.Task, error) {
@@ -264,7 +264,7 @@ func (s *Store) CountTaskOwnedObjects(ctx context.Context, taskID string) (int, 
 }
 
 func (s *Store) CreateObject(ctx context.Context, object model.Object) (model.Object, error) {
-	return object, s.execUpsert(ctx, `INSERT INTO objects (object_id, type, owner_type, owner_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, object.ObjectID, object.Type, object.OwnerType, object.OwnerID, mustJSON(object.JSON), object.CreatedAt, object.UpdatedAt)
+	return object, s.execUpsert(ctx, `INSERT INTO objects (object_id, type, owner_type, owner_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, "object", object.ObjectID, object.ObjectID, object.Type, object.OwnerType, object.OwnerID, mustJSON(object.JSON), object.CreatedAt, object.UpdatedAt)
 }
 
 func (s *Store) GetObject(ctx context.Context, id string) (model.Object, error) {
@@ -581,9 +581,9 @@ func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error)
 	return state, nil
 }
 
-func (s *Store) execUpsert(ctx context.Context, sql string, args ...any) error {
+func (s *Store) execUpsert(ctx context.Context, sql string, resourceType, resourceID string, args ...any) error {
 	_, err := s.pool.Exec(ctx, sql, args...)
-	return mapPGError(err, "", "")
+	return mapPGError(err, resourceType, resourceID)
 }
 
 func (s *Store) count(ctx context.Context, query string, args ...any) (int, error) {
@@ -802,7 +802,11 @@ func chooseLimit(requested, fallback int64) int64 {
 	if requested > 0 && requested < fallback {
 		return requested
 	}
+	if requested > 0 {
+		return fallback
+	}
 	return fallback
 }
 
 func itoa(v int) string { return fmt.Sprintf("%d", v) }
+

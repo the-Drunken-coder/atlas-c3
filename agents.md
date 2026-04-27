@@ -60,4 +60,4 @@ These guidelines are working if they produce fewer unnecessary diff changes, few
 
 ## Project Notes
 
-- The repository root is still the workspace/docs root; the executable Atlas Core implementation now lives under `/atlas-core`, matching the build plan's implementation root.
+- The repository root is still the workspace/docs root; the executable Atlas Core implementation now lives under `atlas-core`, matching the build plan's implementation root.

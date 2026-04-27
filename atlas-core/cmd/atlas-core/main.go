@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,8 +18,8 @@ import (
 )
 
 func main() {
-	rootDir, err := filepath.Abs(filepath.Join(filepath.Dir(os.Args[0]), "..", ".."))
-	if err != nil {
+	rootDir := os.Getenv("ATLAS_CORE_ROOT_DIR")
+	if rootDir == "" {
 		rootDir, _ = os.Getwd()
 	}
 	cfg, err := config.Load(rootDir)

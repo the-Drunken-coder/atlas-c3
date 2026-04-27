@@ -23,6 +23,33 @@ type Catalog struct {
 	ByKind        map[string]Kind `json:"-"`
 }
 
+func (k Kind) Clone() Kind {
+	out := k
+	if k.DataSchema == nil {
+		out.DataSchema = nil
+		return out
+	}
+	out.DataSchema = model.CloneJSONMap(model.JSONMap(k.DataSchema))
+	return out
+}
+
+func (c Catalog) Clone() Catalog {
+	out := c
+	if c.SightingKinds != nil {
+		out.SightingKinds = make([]Kind, len(c.SightingKinds))
+		for i, k := range c.SightingKinds {
+			out.SightingKinds[i] = k.Clone()
+		}
+	}
+	if c.ByKind != nil {
+		out.ByKind = make(map[string]Kind, len(c.ByKind))
+		for k, v := range c.ByKind {
+			out.ByKind[k] = v.Clone()
+		}
+	}
+	return out
+}
+
 type Active struct {
 	mu      sync.RWMutex
 	catalog Catalog
@@ -64,7 +91,11 @@ func Validate(c Catalog) error {
 			if coreErr, ok := model.IsCoreError(err); ok {
 				if rawFields, ok := coreErr.Details["fields"].([]model.FieldError); ok {
 					fields = append(fields, rawFields...)
+				} else {
+					fields = append(fields, model.FieldError{Field: prefix + ".data_schema", Code: "invalid_schema", Message: err.Error()})
 				}
+			} else {
+				fields = append(fields, model.FieldError{Field: prefix + ".data_schema", Code: "invalid_schema", Message: err.Error()})
 			}
 		}
 	}
@@ -77,14 +108,17 @@ func Validate(c Catalog) error {
 func (a *Active) Set(c Catalog) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.catalog = c
+	a.catalog = c.Clone()
 	a.ready = true
 }
 
 func (a *Active) Get() (Catalog, bool) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.catalog, a.ready
+	if !a.ready {
+		return Catalog{}, false
+	}
+	return a.catalog.Clone(), true
 }
 
 func ValidateSighting(active Catalog, sighting any) error {

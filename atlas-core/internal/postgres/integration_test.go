@@ -2,9 +2,11 @@ package postgres_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
@@ -32,6 +34,18 @@ func TestEnsureSchemaAndStoreRoundTrip(t *testing.T) {
 	}
 	if files.Status().Status != "ready" {
 		t.Fatalf("unexpected storage status: %+v", files.Status())
+	}
+	st := postgres.NewStore(pool, files, 16*1024*1024, nil)
+	objID := fmt.Sprintf("obj-rt-%d", time.Now().UnixNano())
+	if _, err := st.CreateObject(context.Background(), model.Object{ObjectID: objID, Type: "t", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}}); err != nil {
+		t.Fatalf("create object: %v", err)
+	}
+	obj, err := st.GetObject(context.Background(), objID)
+	if err != nil {
+		t.Fatalf("get object: %v", err)
+	}
+	if obj.ObjectID != objID {
+		t.Fatalf("expected object ID %s, got %s", objID, obj.ObjectID)
 	}
 }
 
@@ -61,14 +75,15 @@ func TestPostCommitDeleteObjectMarksMismatchOnNonRemovableFile(t *testing.T) {
 		t.Fatalf("verify: %v", err)
 	}
 	st := postgres.NewStore(pool, files, 16*1024*1024, nil)
-	objID := "obj-b23"
+	objID := fmt.Sprintf("obj-b23-%d", time.Now().UnixNano())
+	fileID := fmt.Sprintf("f1-%d", time.Now().UnixNano())
 	if _, err := st.CreateObject(ctx, model.Object{ObjectID: objID, Type: "t", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}}); err != nil {
 		t.Fatalf("create object: %v", err)
 	}
-	if _, err := st.CreateObjectFile(ctx, store.ObjectUploadInput{File: model.ObjectFile{FileID: "f1", ObjectID: objID, ContentType: "application/octet-stream"}, Reader: strings.NewReader("data"), MaxBytes: 16}); err != nil {
+	if _, err := st.CreateObjectFile(ctx, store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objID, ContentType: "application/octet-stream"}, Reader: strings.NewReader("data"), MaxBytes: 16}); err != nil {
 		t.Fatalf("file: %v", err)
 	}
-	meta, err := st.GetObjectFile(ctx, objID, "f1")
+	meta, err := st.GetObjectFile(ctx, objID, fileID)
 	if err != nil {
 		t.Fatalf("get file: %v", err)
 	}

@@ -50,7 +50,7 @@ jobs:
         working-directory: atlas-core
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17.4
         env:
           POSTGRES_DB: atlas_core
           POSTGRES_USER: postgres

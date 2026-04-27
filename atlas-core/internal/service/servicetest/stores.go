@@ -135,6 +135,15 @@ func (m *MemoryStore) ListObservations(_ context.Context, filter store.Observati
 		if filter.SourceAssetID != "" && item.SourceAssetID != filter.SourceAssetID {
 			continue
 		}
+		if filter.UpdatedAfter != "" {
+			t, err := time.Parse(time.RFC3339Nano, filter.UpdatedAfter)
+			if err != nil {
+				return nil, 0, model.ValidationError(model.FieldError{Field: "updated_after", Code: "invalid_format", Message: "must be RFC3339 format"})
+			}
+			if !item.UpdatedAt.After(t) {
+				continue
+			}
+		}
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -342,6 +351,13 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if file.ContentType == "" {
 		file.ContentType = "application/octet-stream"
 	}
+	now := time.Now().UTC()
+	if file.CreatedAt.IsZero() {
+		file.CreatedAt = now
+	}
+	if file.UpdatedAt.IsZero() {
+		file.UpdatedAt = now
+	}
 	m.ObjectFiles[file.FileID] = file
 	m.FileBytes[file.FileID] = bytesValue
 	return file, nil
@@ -376,7 +392,7 @@ func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID strin
 	}
 	m.FileBytes[fileID] = append(m.FileBytes[fileID], bytesValue...)
 	file.SizeBytes = int64(len(m.FileBytes[fileID]))
-	file.UpdatedAt = file.UpdatedAt.Add(time.Second)
+	file.UpdatedAt = time.Now().UTC()
 	m.ObjectFiles[fileID] = file
 	return file, nil
 }
