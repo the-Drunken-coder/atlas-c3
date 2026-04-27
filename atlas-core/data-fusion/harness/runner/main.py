@@ -31,7 +31,7 @@ def validate_base_url(value: str) -> str:
         raise ValueError("ATLAS_CORE_BASE_URL must not include a query string or fragment")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("ATLAS_CORE_BASE_URL must not include user credentials")
-    normalized = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", "")).rstrip("/")
+    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
     return normalized
 
 
