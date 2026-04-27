@@ -427,26 +427,30 @@ func (s *Store) AppendObjectFile(ctx context.Context, objectID, fileID string, r
 	if err != nil {
 		return model.ObjectFile{}, mapNotFound(err, "object_file", fileID)
 	}
-	preMeta := file.SizeBytes
-	newSize, err := s.files.Append(file.Path, reader, chooseLimit(maxBytes, s.maxUpload))
+	// Roll back to the real pre-append disk size returned by Append, NOT to the
+	// DB-recorded size (file.SizeBytes). The DB and disk can already be out of
+	// sync (a prior commit failure raises MarkMismatch but leaves bytes on
+	// disk), and truncating to a stale metadata size would discard data that
+	// was on disk before this request.
+	preDisk, newSize, err := s.files.Append(file.Path, reader, chooseLimit(maxBytes, s.maxUpload))
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
 	now := time.Now().UTC()
 	if _, err := tx.Exec(ctx, `UPDATE object_files SET size_bytes=$3, updated_at=$4 WHERE file_id=$1 AND object_id=$2`, fileID, objectID, newSize, now); err != nil {
-		if tr := s.files.TruncateBack(file.Path, preMeta); tr != nil {
+		if tr := s.files.TruncateBack(file.Path, preDisk); tr != nil {
 			s.files.MarkMismatch("object file append: database update failed; rollback truncate also failed: " + tr.Error())
 		}
 		return model.ObjectFile{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE objects SET updated_at=$2 WHERE object_id=$1`, objectID, now); err != nil {
-		if tr := s.files.TruncateBack(file.Path, preMeta); tr != nil {
+		if tr := s.files.TruncateBack(file.Path, preDisk); tr != nil {
 			s.files.MarkMismatch("object file append: object update failed; rollback truncate also failed: " + tr.Error())
 		}
 		return model.ObjectFile{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		if tr := s.files.TruncateBack(file.Path, preMeta); tr != nil {
+		if tr := s.files.TruncateBack(file.Path, preDisk); tr != nil {
 			s.files.MarkMismatch("object file append: commit failed; rollback truncate also failed: " + tr.Error())
 		} else {
 			s.files.MarkMismatch("object file bytes appended but database commit failed")

@@ -71,7 +71,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("GET /objects/{object_id}", router.handleGetObject)
 	mux.HandleFunc("PATCH /objects/{object_id}", router.handlePatchObject)
 	mux.HandleFunc("DELETE /objects/{object_id}", router.handleDeleteObject)
-	mux.HandleFunc("POST /objects/{object_id}/files", router.handleUploadObjectFile)
+	mux.HandleFunc("POST /objects/{object_id}/files/{file_id}", router.handleUploadObjectFile)
 	mux.HandleFunc("GET /objects/{object_id}/files/{file_id}", router.handleGetObjectFile)
 	mux.HandleFunc("POST /objects/{object_id}/files/{file_id}/append", router.handleAppendObjectFile)
 	mux.HandleFunc("GET /objects/{object_id}/files/{file_id}/content", router.handleGetObjectFileContent)
@@ -535,7 +535,8 @@ func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request
 		return
 	}
 	objectID := req.PathValue("object_id")
-	var fileID, usageHint, contentTypeOverride string
+	fileID := req.PathValue("file_id")
+	var usageHint, contentTypeOverride string
 	var filePart *multipart.Part
 parts:
 	for {
@@ -550,13 +551,9 @@ parts:
 		name := part.FormName()
 		switch name {
 		case "file_id":
-			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
-			if perr != nil {
-				r.writeError(w, req, r.mapMultipartReadError(perr))
-				return
-			}
-			fileID = v
+			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
+			return
 		case "usage_hint":
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
@@ -574,11 +571,6 @@ parts:
 			}
 			contentTypeOverride = v
 		case "file":
-			if fileID == "" {
-				_ = part.Close()
-				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id part must be sent before file part"}))
-				return
-			}
 			if filePart != nil {
 				_ = part.Close()
 				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "invalid_value", Message: "only one file part is allowed"}))
@@ -592,10 +584,6 @@ parts:
 			_, _ = io.Copy(io.Discard, part)
 			_ = part.Close()
 		}
-	}
-	if fileID == "" {
-		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file_id", Code: "required", Message: "file_id is required"}))
-		return
 	}
 	if filePart == nil {
 		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file upload is required"}))

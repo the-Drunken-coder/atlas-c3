@@ -19,7 +19,7 @@ func TestAppendOversizeRollsBackToPreSize(t *testing.T) {
 	}
 	_, st0, _ := s.Open(logical)
 	pre := st0.Size()
-	if _, err := s.Append(logical, strings.NewReader("xxxxx"), 2); err == nil {
+	if _, _, err := s.Append(logical, strings.NewReader("xxxxx"), 2); err == nil {
 		t.Fatal("expected payload too large")
 	}
 	_, st1, _ := s.Open(logical)
@@ -40,7 +40,7 @@ func TestAppendEmptyBodyDoesNotChangeSize(t *testing.T) {
 	}
 	_, s0, _ := s.Open(path)
 	pre := s0.Size()
-	if _, err := s.Append(path, strings.NewReader(""), 100); err == nil {
+	if _, _, err := s.Append(path, strings.NewReader(""), 100); err == nil {
 		t.Fatal("expected empty body error")
 	}
 	_, s1, _ := s.Open(path)
@@ -95,7 +95,7 @@ func TestAppendIOCopyErrorTruncates(t *testing.T) {
 	}
 	r, w := io.Pipe()
 	_ = w.Close()
-	_, err := s.Append(p, r, 1000)
+	_, _, err := s.Append(p, r, 1000)
 	if err == nil {
 		t.Fatal("expected read error")
 	}

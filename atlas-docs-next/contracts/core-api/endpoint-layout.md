@@ -75,7 +75,7 @@ Planned paths:
 - `GET /objects/{object_id}`
 - `PATCH /objects/{object_id}`
 - `DELETE /objects/{object_id}`
-- `POST /objects/{object_id}/files`
+- `POST /objects/{object_id}/files/{file_id}`
 - `POST /objects/{object_id}/files/{file_id}/append`
 - `GET /objects/{object_id}/files/{file_id}`
 - `GET /objects/{object_id}/files/{file_id}/content`

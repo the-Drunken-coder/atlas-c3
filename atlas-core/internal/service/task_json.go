@@ -40,6 +40,11 @@ func mergeTaskComponentsOnlyProgressResultError(current, patch model.JSONMap) (m
 		}
 	}
 	out := model.CloneJSONMap(current)
+	// Normalize patch so nested values are map[string]any regardless of whether
+	// the caller built them with map[string]any or model.JSONMap (the latter has
+	// the same underlying type but is a distinct named type, so the assertion
+	// below would otherwise reject a structurally valid patch).
+	patch = model.CloneJSONMap(patch)
 	pComp, ok := patch["components"].(map[string]any)
 	if !ok {
 		return out, model.ValidationError(model.FieldError{Field: "json.components", Code: "invalid_type", Message: "components must be an object"})
@@ -79,7 +84,15 @@ func deepCloneStringAnyMap(m map[string]any) map[string]any {
 // taskCommandAndParametersEqual returns true if json.components.command and
 // json.components.parameters are deeply equal in both document roots. Missing
 // parameters are treated as an empty object.
+//
+// Both inputs are normalized through CloneJSONMap so nested values are always
+// map[string]any. Without this, reflect.DeepEqual would treat a model.JSONMap
+// and an equivalently-shaped map[string]any as different (distinct named
+// types), producing false negatives for callers that build patches
+// programmatically.
 func taskCommandAndParametersEqual(a, b model.JSONMap) bool {
+	a = model.CloneJSONMap(a)
+	b = model.CloneJSONMap(b)
 	c1, _ := a["components"].(map[string]any)
 	c2, _ := b["components"].(map[string]any)
 	if c1 == nil && c2 == nil {

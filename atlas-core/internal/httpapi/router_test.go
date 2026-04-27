@@ -102,9 +102,6 @@ func TestObjectFileUploadOversizeReturns413(t *testing.T) {
 	_, router := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	if err := mw.WriteField("file_id", "f1"); err != nil {
-		t.Fatal(err)
-	}
 	pw, err := mw.CreateFormFile("file", "x.dat")
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +112,7 @@ func TestObjectFileUploadOversizeReturns413(t *testing.T) {
 	if err := mw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files", &body)
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -126,7 +123,7 @@ func TestObjectFileUploadOversizeReturns413(t *testing.T) {
 
 func TestObjectFileUploadMalformedMultipartReturns400(t *testing.T) {
 	_, router := testUploadRouter(t)
-	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files", strings.NewReader(""))
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", strings.NewReader(""))
 	req.Header.Set("Content-Type", "multipart/form-data")
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -138,11 +135,9 @@ func TestObjectFileUploadMalformedMultipartReturns400(t *testing.T) {
 func TestObjectFileUploadTruncatedMultipartReturns400(t *testing.T) {
 	_, router := testUploadRouter(t)
 	body := "--testboundary\r\n" +
-		"Content-Disposition: form-data; name=\"file_id\"\r\n\r\nf1\r\n" +
-		"--testboundary\r\n" +
 		"Content-Disposition: form-data; name=\"file\"; filename=\"x.dat\"\r\n" +
 		"Content-Type: application/octet-stream\r\n\r\nabc"
-	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "multipart/form-data; boundary=testboundary")
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -155,9 +150,6 @@ func TestObjectFileUploadRejectsInvalidContentTypeOverride(t *testing.T) {
 	_, router := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	if err := mw.WriteField("file_id", "f1"); err != nil {
-		t.Fatal(err)
-	}
 	if err := mw.WriteField("content_type", "text/plain\r\nX-Test: injected"); err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +163,33 @@ func TestObjectFileUploadRejectsInvalidContentTypeOverride(t *testing.T) {
 	if err := mw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files", &body)
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestObjectFileUploadRejectsLegacyFileIDFormField(t *testing.T) {
+	_, router := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("file_id", "f1"); err != nil {
+		t.Fatal(err)
+	}
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -184,9 +202,6 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	_, router := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
-	if err := mw.WriteField("file_id", "f1"); err != nil {
-		t.Fatal(err)
-	}
 	if err := mw.WriteField("content_type", "text/plain; charset=utf-8"); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +215,7 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	if err := mw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files", &body)
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)

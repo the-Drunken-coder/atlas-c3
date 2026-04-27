@@ -178,58 +178,64 @@ func (s *Store) TruncateBack(logicalPath string, size int64) error {
 	return os.Truncate(target, size)
 }
 
-func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (int64, error) {
+// Append writes reader to the on-disk file at logicalPath in O_APPEND mode and
+// returns the actual pre-append disk size and the new disk size. Callers MUST
+// use preSize (not any database-recorded size) as the rollback truncate target
+// if a downstream operation fails: database metadata can be stale (a prior
+// commit may have failed and left the file ahead of metadata), so truncating
+// to a stale size would discard committed bytes that existed before this call.
+func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (preSize, newSize int64, err error) {
 	target, err := s.AbsolutePath(logicalPath)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	preStat, err := os.Stat(target)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	preSize := preStat.Size()
+	preSize = preStat.Size()
 	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return 0, err
+		return preSize, 0, err
 	}
 	limiter := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	written, err := io.Copy(file, limiter)
 	if err != nil {
 		_ = file.Close()
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
-		return 0, err
+		return preSize, 0, err
 	}
 	if written == 0 {
 		_ = file.Close()
-		return 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
+		return preSize, 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
 	}
 	if written > maxBytes {
 		_ = file.Close()
 		payloadErr := model.PayloadTooLarge("append exceeds configured limit")
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return 0, fmt.Errorf("%w: rollback truncate failed: %v", payloadErr, tr)
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", payloadErr, tr)
 		}
-		return 0, payloadErr
+		return preSize, 0, payloadErr
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
-		return 0, err
+		return preSize, 0, err
 	}
 	if err := file.Close(); err != nil {
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
-		return 0, err
+		return preSize, 0, err
 	}
-	return preSize + written, nil
+	return preSize, preSize + written, nil
 }
 
 func SafeUsageHint(value string) string {
