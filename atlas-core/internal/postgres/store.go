@@ -25,10 +25,17 @@ type Store struct {
 	pool      *pgxpool.Pool
 	files     *objectfiles.Store
 	maxUpload int64
+	logger    *slog.Logger
 }
 
-func NewStore(pool *pgxpool.Pool, files *objectfiles.Store, maxUpload int64) *Store {
-	return &Store{pool: pool, files: files, maxUpload: maxUpload}
+// NewStore constructs a Store. logger is used for best-effort post-commit
+// cleanup paths where errors cannot be returned to the caller. If nil,
+// [slog.Default] is used.
+func NewStore(pool *pgxpool.Pool, files *objectfiles.Store, maxUpload int64, logger *slog.Logger) *Store {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Store{pool: pool, files: files, maxUpload: maxUpload, logger: logger}
 }
 
 func (s *Store) StorageStatus(context.Context) model.DependencyStatus {
@@ -337,18 +344,25 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 // mark a mismatch if bytes remain so readiness reflects an operational problem.
 // This is not crash-proof cross-process atomicity: if the process dies after commit, files
 // may need a separate sweeper.
+//
+// Failures are logged per-path but do not short-circuit the loop: a transient failure on
+// one path must not strand the remaining paths as orphans. MarkMismatch is called once at
+// the end if any path failed.
 func (s *Store) postCommitObjectFilePathsDelete(contextLabel, resourceID string, paths []string) {
+	var hadFailure bool
 	for _, path := range paths {
 		if err := s.files.Delete(path); err != nil {
-			slog.Error("post-commit file delete failed after database delete; stored metadata no longer has this object",
+			s.logger.Error("post-commit file delete failed after database delete; stored metadata no longer has this object",
 				"context", contextLabel,
 				"path", path,
 				"resource_id", resourceID,
 				"err", err,
 			)
-			s.files.MarkMismatch("post-delete file cleanup failed")
-			return
+			hadFailure = true
 		}
+	}
+	if hadFailure {
+		s.files.MarkMismatch("post-delete file cleanup failed")
 	}
 }
 func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {

@@ -61,7 +61,7 @@ func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, e
 	}
 	commandCatalog := &catalog.Active{}
 	sightingCat := &sightingcatalog.Active{}
-	stores := postgres.NewStore(pool, files, cfg.MaxUploadBytes)
+	stores := postgres.NewStore(pool, files, cfg.MaxUploadBytes, logger.Component("postgres"))
 	if loaded, err := catalog.Load(cfg.CommandCatalogPath); err != nil {
 		logger.Component("app").WarnContext(ctx, "failed to load command catalog",
 			slog.String("path", cfg.CommandCatalogPath),

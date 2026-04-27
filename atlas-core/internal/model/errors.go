@@ -86,6 +86,12 @@ func NotFound(resourceType, resourceID string) *CoreError {
 	return NewCoreError(http.StatusNotFound, "not_found", fmt.Sprintf("%s not found", resourceType), map[string]any{"resource_type": resourceType, "resource_id": resourceID})
 }
 
+// Conflict builds a 409 CoreError. The named arguments resourceType, resourceID,
+// and reason are authoritative and will overwrite any identically-keyed values
+// passed in extra — this is intentional, so the API response always carries a
+// consistent shape regardless of caller input. Use extra only for auxiliary
+// context (e.g. "conflicting_field", "existing_id"), never to override the
+// canonical identity/reason fields.
 func Conflict(resourceType, resourceID, reason string, extra map[string]any) *CoreError {
 	details := map[string]any{}
 	for k, v := range extra {

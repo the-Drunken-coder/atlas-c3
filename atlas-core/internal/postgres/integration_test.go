@@ -60,7 +60,7 @@ func TestPostCommitDeleteObjectMarksMismatchOnNonRemovableFile(t *testing.T) {
 	if err := files.Verify(); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	st := postgres.NewStore(pool, files, 16*1024*1024)
+	st := postgres.NewStore(pool, files, 16*1024*1024, nil)
 	objID := "obj-b23"
 	if _, err := st.CreateObject(ctx, model.Object{ObjectID: objID, Type: "t", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}}); err != nil {
 		t.Fatalf("create object: %v", err)

@@ -210,10 +210,11 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (in
 	}
 	if written > maxBytes {
 		_ = file.Close()
+		payloadErr := model.PayloadTooLarge("append exceeds configured limit")
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return 0, fmt.Errorf("append payload too large: rollback truncate failed: %v", tr)
+			return 0, fmt.Errorf("%w: rollback truncate failed: %v", payloadErr, tr)
 		}
-		return 0, model.PayloadTooLarge("append exceeds configured limit")
+		return 0, payloadErr
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()

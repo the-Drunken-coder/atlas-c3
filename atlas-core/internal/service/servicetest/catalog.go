@@ -22,10 +22,12 @@ func NewDefaultCommandCatalog() (catalog.Catalog, error) {
 	if err := catalog.Validate(c); err != nil {
 		return catalog.Catalog{}, err
 	}
-	c.ObjectID = catalog.ObjectIDFromContentBytes(raw)
-	if len(c.ObjectID) > len("command-catalog-") {
-		c.ContentHash = c.ObjectID[len("command-catalog-"):]
-	}
+	// Mirror [catalog.Load]: derive ContentHash from the raw bytes via the
+	// canonical helper, then build ObjectID from that hash. Slicing a known
+	// prefix off ObjectID would silently produce wrong values if the prefix
+	// format ever changes.
+	c.ContentHash = catalog.ContentHashOfBytes(raw)
+	c.ObjectID = catalog.ObjectIDFromContentHash(c.ContentHash)
 	c.ByType = make(map[string]catalog.Command, len(c.Commands))
 	for _, cmd := range c.Commands {
 		c.ByType[cmd.Type] = cmd
