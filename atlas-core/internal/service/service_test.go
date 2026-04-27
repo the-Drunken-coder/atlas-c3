@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -112,9 +113,9 @@ func TestCreateTaskDistinguishesMissingAndWrongTypeCommandSections(t *testing.T)
 			wantCode:  "invalid_type",
 		},
 	}
-	for _, test := range tests {
+	for idx, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: "task-" + strings.ReplaceAll(test.name, " ", "-"), AssetID: "asset-1", JSON: test.json})
+			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: fmt.Sprintf("task-%d", idx), AssetID: "asset-1", JSON: test.json})
 			if err == nil {
 				t.Fatal("expected validation error")
 			}

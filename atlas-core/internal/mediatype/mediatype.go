@@ -22,6 +22,8 @@ func NormalizeContentType(value string) (string, bool) {
 	}
 	formatted := mime.FormatMediaType(mediaType, params)
 	if formatted == "" {
+		// If parameter formatting fails, return the validated media type without
+		// parameters so callers still get a safe header/storage value.
 		return mediaType, true
 	}
 	return formatted, true
