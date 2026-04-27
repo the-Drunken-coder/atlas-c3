@@ -172,7 +172,7 @@ func (s *Store) DeleteObservation(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	paths, err := filePathsForOwner(ctx, tx, "observation", id)
 	if err != nil {
 		return err
@@ -320,7 +320,7 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	paths, err := filePathsForObject(ctx, tx, id)
 	if err != nil {
 		return err
@@ -384,7 +384,7 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := ensureObjectExists(ctx, tx, file.ObjectID); err != nil {
 		return model.ObjectFile{}, err
 	}
@@ -421,7 +421,7 @@ func (s *Store) AppendObjectFile(ctx context.Context, objectID, fileID string, r
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	row := tx.QueryRow(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files WHERE file_id=$1 AND object_id=$2 FOR UPDATE`, fileID, objectID)
 	file, err := scanObjectFile(row)
 	if err != nil {
@@ -486,7 +486,7 @@ func (s *Store) DeleteObjectFile(ctx context.Context, objectID, fileID string) e
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	result, err := tx.Exec(ctx, `DELETE FROM object_files WHERE file_id=$1 AND object_id=$2`, fileID, objectID)
 	if err != nil {
 		return err
@@ -525,7 +525,7 @@ func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error)
 	if err != nil {
 		return store.QueryState{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	state := store.QueryState{}
 	if rows, err := tx.Query(ctx, `SELECT entity_id, type, COALESCE(subtype,''), COALESCE(alias,''), json, created_at, updated_at FROM entities ORDER BY updated_at DESC, entity_id ASC`); err != nil {
 		return state, err

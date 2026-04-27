@@ -1,4 +1,4 @@
-# golangci-lint configuration for the atlas-core Go module.
+# golangci-lint configuration for the atlas-core Go module (v2 schema).
 #
 # IMPORTANT: this module lives at `atlas-core/go.mod` (it is NOT a top-level
 # module of the repository). Run golangci-lint from this directory, e.g.:
@@ -8,20 +8,34 @@
 # Running from the repository root with `./...` will fail with
 # "directory prefix . does not contain main module or its selected dependencies"
 # because there is no go.mod at the repo root.
+#
+# v2 default linters (errcheck, govet, ineffassign, staticcheck, unused) match
+# the set explicitly enabled under v1, so no `linters.enable` block is needed.
+# In v2, run.timeout is removed — pass --timeout via CLI args (see ci.yml).
+# The exclusions.presets block reproduces v1's default exclusion behavior so
+# the migration is signal-equivalent; tighten by removing presets in a follow-up.
 
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
 linters:
-  enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-
-issues:
-  exclude-dirs:
-    - data-fusion/harness/runner
-    - tools
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - data-fusion/harness/runner
+      - tools
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

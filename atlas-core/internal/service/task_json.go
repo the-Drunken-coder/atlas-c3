@@ -12,12 +12,12 @@ import (
 // pending, only json.components.(progress|result|error) may be updated.
 func mergeTaskJSONForPatch(current model.JSONMap, patch model.JSONMap, pending bool) (model.JSONMap, error) {
 	if pending {
-		if patch == nil || len(patch) == 0 {
+		if len(patch) == 0 {
 			return model.CloneJSONMap(current), nil
 		}
 		return model.MergeNamedSections(current, patch), nil
 	}
-	if patch == nil || len(patch) == 0 {
+	if len(patch) == 0 {
 		return model.CloneJSONMap(current), nil
 	}
 	return mergeTaskComponentsOnlyProgressResultError(current, patch)
@@ -27,7 +27,7 @@ func mergeTaskJSONForPatch(current model.JSONMap, patch model.JSONMap, pending b
 // json.components.(progress|result|error) may be updated; command and parameters
 // are never taken from the transition body.
 func mergeTaskJSONForStatusTransition(current model.JSONMap, patch model.JSONMap) (model.JSONMap, error) {
-	if patch == nil || len(patch) == 0 {
+	if len(patch) == 0 {
 		return model.CloneJSONMap(current), nil
 	}
 	return mergeTaskComponentsOnlyProgressResultError(current, patch)
