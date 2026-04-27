@@ -643,6 +643,9 @@ func (r *Router) mapChunkedReadError(err error) error {
 	return err
 }
 
+// normalizeContentType returns a normalized media type plus whether the input
+// itself was valid. Empty input is treated as valid and falls back to
+// application/octet-stream.
 func normalizeContentType(value string) (string, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -664,8 +667,8 @@ func normalizeContentType(value string) (string, bool) {
 
 func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
 	if formOverride != "" {
-		normalized, ok := normalizeContentType(formOverride)
-		if !ok {
+		normalized, valid := normalizeContentType(formOverride)
+		if !valid {
 			return "", model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "content_type must be a valid media type"})
 		}
 		return normalized, nil
