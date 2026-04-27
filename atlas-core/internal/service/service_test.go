@@ -14,6 +14,8 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/sightingcatalog"
 )
 
+const oversizedPinnedCatalogBytes = (8 << 20) + 1
+
 func setupServices(t *testing.T) (*service.Services, *servicetest.MemoryStore, string) {
 	t.Helper()
 	cat, err := servicetest.NewDefaultCommandCatalog()
@@ -29,7 +31,7 @@ func setupServices(t *testing.T) (*service.Services, *servicetest.MemoryStore, s
 }
 
 func setAssetSupportedCommands(stores *servicetest.MemoryStore, commands ...string) {
-	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": anySlice(commands)}}}}
+	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: supportedCommandsJSON(commands...)}
 }
 
 func anySlice(values []string) []any {
@@ -38,6 +40,10 @@ func anySlice(values []string) []any {
 		out = append(out, value)
 	}
 	return out
+}
+
+func supportedCommandsJSON(commands ...string) model.JSONMap {
+	return model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": anySlice(commands)}}}
 }
 
 func assertConcreteImmutableFields(t *testing.T, err error) {
@@ -198,7 +204,7 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	svc, stores, _ := setupServices(t)
 	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Objects["catalog-big"] = model.Object{ObjectID: "catalog-big", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog"}
-	raw := []byte(strings.Repeat("a", (8<<20)+1))
+	raw := []byte(strings.Repeat("a", oversizedPinnedCatalogBytes))
 	stores.ObjectFiles["catalog-json"] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
 	stores.FileBytes["catalog-json"] = raw
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: "catalog-big", JSON: model.JSONMap{"components": map[string]any{
