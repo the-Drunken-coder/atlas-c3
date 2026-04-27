@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/catalog"
