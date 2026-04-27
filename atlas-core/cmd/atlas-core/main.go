@@ -19,6 +19,22 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 )
 
+// resolveRootDir returns the deployment root: the directory used to resolve
+// default relative paths in config (see config.Load in internal/config): var/object-storage,
+// command-catalog/catalog.json, sighting-catalog/catalog.json, unless those are
+// overridden with ATLAS_CORE_OBJECT_STORAGE_ROOT, ATLAS_CORE_COMMAND_CATALOG_PATH,
+// and ATLAS_CORE_SIGHTING_CATALOG_PATH.
+//
+// Resolution order:
+//  1. If ATLAS_CORE_ROOT_DIR is set, it is used (trimmed, then made absolute). Use
+//     this for go run (the binary lives in a temp dir, not your checkout),
+//     custom install layouts, or when the binary is not colocated with data.
+//  2. Otherwise the parent directory of the running executable is used, after
+//     EvalSymlinks. That matches: go build -o ./atlas-core ./cmd/atlas-core and
+//     running ./atlas-core from the built tree; or a Docker image with the
+//     binary at e.g. /app/atlas-core (root becomes /app). Production images
+//     often set absolute catalog/storage env vars; root still anchors any
+//     remaining defaults.
 func resolveRootDir() (string, error) {
 	if d := strings.TrimSpace(os.Getenv("ATLAS_CORE_ROOT_DIR")); d != "" {
 		abs, err := filepath.Abs(d)

@@ -40,7 +40,7 @@ func ValidateSchema(schema map[string]any, path string) error {
 			break
 		}
 	}
-	if schemaType == "" && hasConstraintKeywords {
+	if !hasType && hasConstraintKeywords {
 		fields = append(fields, model.FieldError{Field: path + ".type", Code: "required", Message: "type is required when schema defines properties or constraints"})
 	}
 	switch schemaType {

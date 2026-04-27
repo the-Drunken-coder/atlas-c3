@@ -74,7 +74,7 @@ func (c Catalog) Clone() Catalog {
 	if c.Metadata != nil {
 		out.Metadata = make(map[string]any, len(c.Metadata))
 		for k, v := range c.Metadata {
-			out.Metadata[k] = v
+			out.Metadata[k] = cloneJSONValue(v)
 		}
 	}
 	if c.Raw != nil {
