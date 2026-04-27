@@ -150,7 +150,11 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transition with progress: %v", err)
 	}
-	prog := task.JSON["components"].(map[string]any)["progress"]
+	components, ok := task.JSON["components"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected task components map, got %#v", task.JSON["components"])
+	}
+	prog := components["progress"]
 	if prog != 0.5 {
 		t.Fatalf("expected progress, got %v", prog)
 	}

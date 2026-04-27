@@ -638,7 +638,7 @@ func (r *Router) mapChunkedReadError(err error) error {
 		return model.PayloadTooLarge("request body or upload exceeds size limit")
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return model.ValidationError(model.FieldError{Field: "body", Code: "invalid_value", Message: "truncated request body"})
+		return model.ValidationError(model.FieldError{Field: "body", Code: "invalid_value", Message: "request body is incomplete or truncated"})
 	}
 	return err
 }
