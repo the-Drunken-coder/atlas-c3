@@ -28,11 +28,12 @@ def import_runner_module():
 
 def load_module(base_url: str | None):
     """Load the runner module with a temporary ATLAS_CORE_BASE_URL value."""
+    patched_environ = dict(os.environ)
     if base_url is None:
-        with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ATLAS_CORE_BASE_URL", None)
-            return import_runner_module()
-    with mock.patch.dict(os.environ, {"ATLAS_CORE_BASE_URL": base_url}, clear=False):
+        patched_environ.pop("ATLAS_CORE_BASE_URL", None)
+    else:
+        patched_environ["ATLAS_CORE_BASE_URL"] = base_url
+    with mock.patch.object(os, "environ", patched_environ):
         return import_runner_module()
 
 

@@ -485,6 +485,8 @@ func (s *Services) loadPinnedCatalog(ctx context.Context, objectID string) (cata
 		}
 		contentHash := active.ContentHash
 		if contentHash == "" {
+			// Older in-memory catalog values may not have ContentHash populated, so
+			// derive it once from the raw bytes before verifying the object ID.
 			contentHash = catalog.ContentHashOfBytes(active.Raw)
 		}
 		if catalog.ObjectIDFromContentHash(contentHash) != objectID {
