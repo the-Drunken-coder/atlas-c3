@@ -13,9 +13,7 @@
 
 set -eu
 
-ATLAS_HOME=/app
 ATLAS_DATA_ROOT="${ATLAS_CORE_OBJECT_STORAGE_ROOT:-/data/object-storage}"
-ATLAS_USER=atlas
 ATLAS_UID=10001
 
 if [ "$(id -u)" = "0" ]; then

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,9 +28,21 @@ func setupServices(t *testing.T) (*service.Services, *servicetest.MemoryStore, s
 	return service.New(stores, commands, sightings, events.NewHub()), stores, cat.ObjectID
 }
 
+func setAssetSupportedCommands(stores *servicetest.MemoryStore, commands ...string) {
+	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": anySlice(commands)}}}}
+}
+
+func anySlice(values []string) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
+}
+
 func TestCreateTaskValidatesSupportedCommands(t *testing.T) {
 	svc, stores, _ := setupServices(t)
-	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": []any{"hold_position"}}}}}
+	setAssetSupportedCommands(stores, "hold_position")
 	_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: "task-1", AssetID: "asset-1", JSON: model.JSONMap{"components": map[string]any{"command": map[string]any{"type": "move_to_location"}, "parameters": map[string]any{"latitude": 1.0}}}})
 	if err == nil {
 		t.Fatal("expected command validation error")
@@ -38,7 +51,7 @@ func TestCreateTaskValidatesSupportedCommands(t *testing.T) {
 
 func TestCreateObservationValidatesSightingHistoryObject(t *testing.T) {
 	svc, stores, _ := setupServices(t)
-	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": []any{"move_to_location"}}}}}
+	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Objects["obj-1"] = model.Object{ObjectID: "obj-1", Type: "observation_media", OwnerType: "observation", OwnerID: "obs-1"}
 	_, err := svc.CreateObservation(context.Background(), service.ObservationCreateInput{ObservationID: "obs-1", SourceAssetID: "asset-1", JSON: model.JSONMap{"state": "active", "sightings_object_id": "obj-1"}})
 	if err == nil {
@@ -48,7 +61,7 @@ func TestCreateObservationValidatesSightingHistoryObject(t *testing.T) {
 
 func TestDeleteEntityRejectsDependents(t *testing.T) {
 	svc, stores, _ := setupServices(t)
-	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": []any{"move_to_location"}}}}}
+	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", AssetID: "asset-1"}
 	if err := svc.DeleteEntity(context.Background(), "asset-1"); err == nil {
 		t.Fatal("expected dependent conflict")
@@ -69,7 +82,7 @@ func TestTransitionTaskStatusIdempotent(t *testing.T) {
 
 func TestPatchTaskAfterPendingRejectsCommandChange(t *testing.T) {
 	svc, stores, catID := setupServices(t)
-	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": []any{"move_to_location", "other"}}}}}
+	setAssetSupportedCommands(stores, "move_to_location", "other")
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "acknowledged", AssetID: "asset-1", CommandCatalogObjectID: catID, JSON: model.JSONMap{"components": map[string]any{
 		"command":   map[string]any{"type": "move_to_location"},
 		"parameters": map[string]any{"latitude": 1.0},
@@ -82,6 +95,14 @@ func TestPatchTaskAfterPendingRejectsCommandChange(t *testing.T) {
 	}})
 	if err == nil {
 		t.Fatal("expected immutability error for command on non-pending task")
+	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "immutable_field" {
+		t.Fatalf("expected immutable_field, got %v", err)
+	}
+	fields, ok := ce.Details["fields"].([]model.FieldError)
+	if !ok || len(fields) != 2 || fields[0].Field != "json.components.command" || fields[1].Field != "json.components.parameters" {
+		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
 	}
 }
 
@@ -105,6 +126,14 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected immutability error when changing command on status transition")
 	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "immutable_field" {
+		t.Fatalf("expected immutable_field, got %v", err)
+	}
+	fields, ok := ce.Details["fields"].([]model.FieldError)
+	if !ok || len(fields) != 2 || fields[0].Field != "json.components.command" || fields[1].Field != "json.components.parameters" {
+		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
+	}
 	task, err := svc.TransitionTaskStatus(context.Background(), "task-1", service.TaskStatusInput{
 		Status: "acknowledged",
 		JSON: model.JSONMap{
@@ -117,5 +146,60 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 	prog, _ := task.JSON["components"].(map[string]any)["progress"]
 	if prog != 0.5 {
 		t.Fatalf("expected progress, got %v", prog)
+	}
+}
+
+func TestTransitionTaskStatusIgnoresSupportedCommandDrift(t *testing.T) {
+	svc, stores, _ := setupServices(t)
+	setAssetSupportedCommands(stores, "move_to_location")
+	created, err := svc.CreateTask(context.Background(), service.TaskCreateInput{
+		TaskID:  "task-1",
+		AssetID: "asset-1",
+		JSON: model.JSONMap{"components": map[string]any{
+			"command":   map[string]any{"type": "move_to_location"},
+			"parameters": map[string]any{"latitude": 1.0},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	setAssetSupportedCommands(stores, "hold_position")
+	acknowledged, err := svc.TransitionTaskStatus(context.Background(), created.TaskID, service.TaskStatusInput{
+		Status: "acknowledged",
+		JSON:   model.JSONMap{"components": map[string]any{"progress": 0.5}},
+	})
+	if err != nil {
+		t.Fatalf("acknowledge task: %v", err)
+	}
+	completed, err := svc.TransitionTaskStatus(context.Background(), created.TaskID, service.TaskStatusInput{
+		Status: "completed",
+		JSON:   model.JSONMap{"components": map[string]any{"result": map[string]any{"ok": true}}},
+	})
+	if err != nil {
+		t.Fatalf("complete task: %v", err)
+	}
+	if acknowledged.Status != "acknowledged" || completed.Status != "completed" {
+		t.Fatalf("unexpected statuses: %s -> %s", acknowledged.Status, completed.Status)
+	}
+}
+
+func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *testing.T) {
+	svc, stores, _ := setupServices(t)
+	setAssetSupportedCommands(stores, "move_to_location")
+	stores.Objects["catalog-big"] = model.Object{ObjectID: "catalog-big", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog"}
+	raw := []byte(strings.Repeat("a", (8<<20)+1))
+	stores.ObjectFiles["catalog-json"] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
+	stores.FileBytes["catalog-json"] = raw
+	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: "catalog-big", JSON: model.JSONMap{"components": map[string]any{
+		"command":   map[string]any{"type": "move_to_location"},
+		"parameters": map[string]any{"latitude": 1.0},
+	}}}
+	_, err := svc.TransitionTaskStatus(context.Background(), "task-1", service.TaskStatusInput{Status: "acknowledged"})
+	if err == nil {
+		t.Fatal("expected catalog unavailable error")
+	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "catalog_unavailable" {
+		t.Fatalf("expected catalog_unavailable, got %v", err)
 	}
 }

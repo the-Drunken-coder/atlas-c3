@@ -227,11 +227,7 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (in
 		}
 		return 0, err
 	}
-	st, err := os.Stat(target)
-	if err != nil {
-		return 0, err
-	}
-	return st.Size(), nil
+	return preSize + written, nil
 }
 
 func normalizeContentType(value string) string {

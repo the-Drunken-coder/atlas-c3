@@ -62,6 +62,14 @@ func ImmutableFieldError(field string) *CoreError {
 	return NewCoreError(http.StatusBadRequest, "immutable_field", "immutable field update rejected", map[string]any{"fields": []FieldError{{Field: field, Code: "immutable", Message: "field is immutable"}}})
 }
 
+func ImmutableFieldsError(fields ...string) *CoreError {
+	fieldErrors := make([]FieldError, 0, len(fields))
+	for _, field := range fields {
+		fieldErrors = append(fieldErrors, FieldError{Field: field, Code: "immutable", Message: "field is immutable"})
+	}
+	return NewCoreError(http.StatusBadRequest, "immutable_field", "immutable field update rejected", map[string]any{"fields": fieldErrors})
+}
+
 func CommandValidationError(message string, fields ...FieldError) *CoreError {
 	details := map[string]any{}
 	if len(fields) > 0 {

@@ -26,6 +26,9 @@ func NewDefaultCommandCatalog() (catalog.Catalog, error) {
 	if len(c.ObjectID) > len("command-catalog-") {
 		c.ContentHash = c.ObjectID[len("command-catalog-"):]
 	}
-	c.ByType = map[string]catalog.Command{"move_to_location": c.Commands[0]}
+	c.ByType = make(map[string]catalog.Command, len(c.Commands))
+	for _, cmd := range c.Commands {
+		c.ByType[cmd.Type] = cmd
+	}
 	return c, nil
 }

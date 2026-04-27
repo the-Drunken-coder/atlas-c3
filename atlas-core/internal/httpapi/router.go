@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -556,7 +557,7 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
-				r.writeError(w, req, perr)
+				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			fileID = v
@@ -564,7 +565,7 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
-				r.writeError(w, req, perr)
+				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			usageHint = v
@@ -572,7 +573,7 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
-				r.writeError(w, req, perr)
+				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			contentTypeOverride = v
@@ -605,9 +606,14 @@ parts:
 		return
 	}
 	defer filePart.Close()
-	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: filePartContentType(filePart, contentTypeOverride)}, Reader: filePart, MaxBytes: maxFile})
+	contentType, err := filePartContentType(filePart, contentTypeOverride)
 	if err != nil {
 		r.writeError(w, req, err)
+		return
+	}
+	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: contentType}, Reader: filePart, MaxBytes: maxFile})
+	if err != nil {
+		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -635,18 +641,42 @@ func (r *Router) mapChunkedReadError(err error) error {
 	if errors.As(err, &mbe) {
 		return model.PayloadTooLarge("request body or upload exceeds size limit")
 	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return model.ValidationError(model.FieldError{Field: "body", Code: "invalid_value", Message: "truncated request body"})
+	}
 	return err
 }
 
-func filePartContentType(p *multipart.Part, formOverride string) string {
+func normalizeContentType(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "application/octet-stream", true
+	}
+	mediaType, params, err := mime.ParseMediaType(value)
+	if err != nil || mediaType == "" {
+		return "application/octet-stream", false
+	}
+	if len(params) == 0 {
+		return mediaType, true
+	}
+	formatted := mime.FormatMediaType(mediaType, params)
+	if formatted == "" {
+		return mediaType, true
+	}
+	return formatted, true
+}
+
+func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
 	if formOverride != "" {
-		return formOverride
+		normalized, ok := normalizeContentType(formOverride)
+		if !ok {
+			return "", model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "content_type must be a valid media type"})
+		}
+		return normalized, nil
 	}
 	ct := p.Header.Get("Content-Type")
-	if ct == "" {
-		return "application/octet-stream"
-	}
-	return strings.TrimSpace(ct)
+	normalized, _ := normalizeContentType(ct)
+	return normalized, nil
 }
 
 func (r *Router) handleGetObjectFile(w http.ResponseWriter, req *http.Request) {
@@ -680,7 +710,8 @@ func (r *Router) handleGetObjectFileContent(w http.ResponseWriter, req *http.Req
 		return
 	}
 	defer rc.Close()
-	w.Header().Set("Content-Type", meta.ContentType)
+	contentType, _ := normalizeContentType(meta.ContentType)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", meta.SizeBytes))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, rc)
