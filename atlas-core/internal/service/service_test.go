@@ -40,6 +40,27 @@ func anySlice(values []string) []any {
 	return out
 }
 
+func assertConcreteImmutableFields(t *testing.T, err error) {
+	t.Helper()
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "immutable_field" {
+		t.Fatalf("expected immutable_field, got %v", err)
+	}
+	fields, ok := ce.Details["fields"].([]model.FieldError)
+	if !ok || len(fields) == 0 {
+		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
+	}
+	allowed := map[string]bool{"json.components.command": true, "json.components.parameters": true}
+	for _, field := range fields {
+		if field.Field == "json.components.command|parameters" {
+			t.Fatalf("unexpected pseudo field path: %#v", ce.Details["fields"])
+		}
+		if !allowed[field.Field] {
+			t.Fatalf("unexpected immutable field path: %#v", ce.Details["fields"])
+		}
+	}
+}
+
 func TestCreateTaskValidatesSupportedCommands(t *testing.T) {
 	svc, stores, _ := setupServices(t)
 	setAssetSupportedCommands(stores, "hold_position")
@@ -96,20 +117,7 @@ func TestPatchTaskAfterPendingRejectsCommandChange(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected immutability error for command on non-pending task")
 	}
-	ce, ok := model.IsCoreError(err)
-	if !ok || ce.ErrorCode != "immutable_field" {
-		t.Fatalf("expected immutable_field, got %v", err)
-	}
-	fields, ok := ce.Details["fields"].([]model.FieldError)
-	if !ok || len(fields) == 0 {
-		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
-	}
-	allowed := map[string]bool{"json.components.command": true, "json.components.parameters": true}
-	for _, field := range fields {
-		if field.Field == "json.components.command|parameters" || !allowed[field.Field] {
-			t.Fatalf("unexpected pseudo field path: %#v", ce.Details["fields"])
-		}
-	}
+	assertConcreteImmutableFields(t, err)
 }
 
 func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
@@ -132,20 +140,7 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected immutability error when changing command on status transition")
 	}
-	ce, ok := model.IsCoreError(err)
-	if !ok || ce.ErrorCode != "immutable_field" {
-		t.Fatalf("expected immutable_field, got %v", err)
-	}
-	fields, ok := ce.Details["fields"].([]model.FieldError)
-	if !ok || len(fields) == 0 {
-		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
-	}
-	allowed := map[string]bool{"json.components.command": true, "json.components.parameters": true}
-	for _, field := range fields {
-		if field.Field == "json.components.command|parameters" || !allowed[field.Field] {
-			t.Fatalf("unexpected pseudo field path: %#v", ce.Details["fields"])
-		}
-	}
+	assertConcreteImmutableFields(t, err)
 	task, err := svc.TransitionTaskStatus(context.Background(), "task-1", service.TaskStatusInput{
 		Status: "acknowledged",
 		JSON: model.JSONMap{
