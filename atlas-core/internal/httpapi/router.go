@@ -643,8 +643,8 @@ func (r *Router) mapChunkedReadError(err error) error {
 	return err
 }
 
-// normalizeContentType returns a normalized media type plus whether the input
-// itself was valid. Empty input is treated as valid and falls back to
+// normalizeContentType returns a normalized media type and whether the input
+// was a valid media type. Empty input is valid and normalizes to
 // application/octet-stream.
 func normalizeContentType(value string) (string, bool) {
 	value = strings.TrimSpace(value)

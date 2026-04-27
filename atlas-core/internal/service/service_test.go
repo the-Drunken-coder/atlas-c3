@@ -14,6 +14,7 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/sightingcatalog"
 )
 
+// oversizedCatalogByteCount is one byte over the 8 MiB pinned catalog limit.
 const oversizedCatalogByteCount = (8 << 20) + 1
 
 func setupServices(t *testing.T) (*service.Services, *servicetest.MemoryStore, string) {
