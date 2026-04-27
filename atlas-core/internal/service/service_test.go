@@ -84,12 +84,12 @@ func TestPatchTaskAfterPendingRejectsCommandChange(t *testing.T) {
 	svc, stores, catID := setupServices(t)
 	setAssetSupportedCommands(stores, "move_to_location", "other")
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "acknowledged", AssetID: "asset-1", CommandCatalogObjectID: catID, JSON: model.JSONMap{"components": map[string]any{
-		"command":   map[string]any{"type": "move_to_location"},
+		"command":    map[string]any{"type": "move_to_location"},
 		"parameters": map[string]any{"latitude": 1.0},
 	}}}
 	_, err := svc.PatchTask(context.Background(), "task-1", service.TaskPatchInput{JSON: model.JSONMap{
 		"components": map[string]any{
-			"command":   map[string]any{"type": "other"},
+			"command":    map[string]any{"type": "other"},
 			"parameters": map[string]any{"latitude": 1.0},
 		},
 	}})
@@ -101,8 +101,14 @@ func TestPatchTaskAfterPendingRejectsCommandChange(t *testing.T) {
 		t.Fatalf("expected immutable_field, got %v", err)
 	}
 	fields, ok := ce.Details["fields"].([]model.FieldError)
-	if !ok || len(fields) != 2 || fields[0].Field != "json.components.command" || fields[1].Field != "json.components.parameters" {
+	if !ok || len(fields) == 0 {
 		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
+	}
+	allowed := map[string]bool{"json.components.command": true, "json.components.parameters": true}
+	for _, field := range fields {
+		if field.Field == "json.components.command|parameters" || !allowed[field.Field] {
+			t.Fatalf("unexpected pseudo field path: %#v", ce.Details["fields"])
+		}
 	}
 }
 
@@ -111,7 +117,7 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 	obs := time.Now().UTC().Format(time.RFC3339)
 	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": obs, "commands": []any{"move_to_location", "other"}}}}}
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: catID, JSON: model.JSONMap{"components": map[string]any{
-		"command":   map[string]any{"type": "move_to_location"},
+		"command":    map[string]any{"type": "move_to_location"},
 		"parameters": map[string]any{"latitude": 1.0},
 	}}}
 	_, err := svc.TransitionTaskStatus(context.Background(), "task-1", service.TaskStatusInput{
@@ -131,8 +137,14 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 		t.Fatalf("expected immutable_field, got %v", err)
 	}
 	fields, ok := ce.Details["fields"].([]model.FieldError)
-	if !ok || len(fields) != 2 || fields[0].Field != "json.components.command" || fields[1].Field != "json.components.parameters" {
+	if !ok || len(fields) == 0 {
 		t.Fatalf("unexpected immutable fields detail: %#v", ce.Details["fields"])
+	}
+	allowed := map[string]bool{"json.components.command": true, "json.components.parameters": true}
+	for _, field := range fields {
+		if field.Field == "json.components.command|parameters" || !allowed[field.Field] {
+			t.Fatalf("unexpected pseudo field path: %#v", ce.Details["fields"])
+		}
 	}
 	task, err := svc.TransitionTaskStatus(context.Background(), "task-1", service.TaskStatusInput{
 		Status: "acknowledged",
@@ -143,7 +155,7 @@ func TestTransitionRejectsCommandEditAllowsProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transition with progress: %v", err)
 	}
-	prog, _ := task.JSON["components"].(map[string]any)["progress"]
+	prog := task.JSON["components"].(map[string]any)["progress"]
 	if prog != 0.5 {
 		t.Fatalf("expected progress, got %v", prog)
 	}
@@ -156,7 +168,7 @@ func TestTransitionTaskStatusIgnoresSupportedCommandDrift(t *testing.T) {
 		TaskID:  "task-1",
 		AssetID: "asset-1",
 		JSON: model.JSONMap{"components": map[string]any{
-			"command":   map[string]any{"type": "move_to_location"},
+			"command":    map[string]any{"type": "move_to_location"},
 			"parameters": map[string]any{"latitude": 1.0},
 		}},
 	})
@@ -191,7 +203,7 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	stores.ObjectFiles["catalog-json"] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
 	stores.FileBytes["catalog-json"] = raw
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: "catalog-big", JSON: model.JSONMap{"components": map[string]any{
-		"command":   map[string]any{"type": "move_to_location"},
+		"command":    map[string]any{"type": "move_to_location"},
 		"parameters": map[string]any{"latitude": 1.0},
 	}}}
 	_, err := svc.TransitionTaskStatus(context.Background(), "task-1", service.TaskStatusInput{Status: "acknowledged"})

@@ -39,10 +39,6 @@ type Dependencies struct {
 	Descriptor func() (model.ServiceDescriptor, error)
 }
 
-type configLike interface {
-	GetAllowedOrigins() []string
-}
-
 type Router struct {
 	deps Dependencies
 }
