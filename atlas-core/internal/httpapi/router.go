@@ -9,15 +9,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"mime/multipart"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/catalog"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/events"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/logging"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service"
@@ -643,38 +642,16 @@ func (r *Router) mapChunkedReadError(err error) error {
 	return err
 }
 
-// normalizeContentType returns a normalized media type and whether the input
-// was a valid media type. Empty input is valid and normalizes to
-// application/octet-stream.
-func normalizeContentType(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "application/octet-stream", true
-	}
-	mediaType, params, err := mime.ParseMediaType(value)
-	if err != nil || mediaType == "" {
-		return "application/octet-stream", false
-	}
-	if len(params) == 0 {
-		return mediaType, true
-	}
-	formatted := mime.FormatMediaType(mediaType, params)
-	if formatted == "" {
-		return mediaType, true
-	}
-	return formatted, true
-}
-
 func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
 	if formOverride != "" {
-		normalized, valid := normalizeContentType(formOverride)
+		normalized, valid := mediatype.NormalizeContentType(formOverride)
 		if !valid {
 			return "", model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "content_type must be a valid media type"})
 		}
 		return normalized, nil
 	}
 	ct := p.Header.Get("Content-Type")
-	normalized, _ := normalizeContentType(ct)
+	normalized, _ := mediatype.NormalizeContentType(ct)
 	return normalized, nil
 }
 
@@ -709,7 +686,7 @@ func (r *Router) handleGetObjectFileContent(w http.ResponseWriter, req *http.Req
 		return
 	}
 	defer rc.Close()
-	contentType, _ := normalizeContentType(meta.ContentType)
+	contentType, _ := mediatype.NormalizeContentType(meta.ContentType)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", meta.SizeBytes))
 	w.WriteHeader(http.StatusOK)

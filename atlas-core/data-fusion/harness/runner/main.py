@@ -27,8 +27,12 @@ def validate_base_url(value: str) -> str:
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("ATLAS_CORE_BASE_URL must be an absolute http(s) URL")
-    normalized = parsed.geturl().rstrip("/")
-    return normalized or parsed.geturl()
+    if parsed.query or parsed.fragment:
+        raise ValueError("ATLAS_CORE_BASE_URL must not include a query string or fragment")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("ATLAS_CORE_BASE_URL must not include user credentials")
+    normalized = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", "")).rstrip("/")
+    return normalized
 
 
 BASE_URL = validate_base_url(os.environ.get("ATLAS_CORE_BASE_URL", "http://atlas-core:8080"))
@@ -61,13 +65,13 @@ def ensure_track() -> bool:
 
     Returns:
         ``True`` when this call had to create the entity (404 on GET, then
-        a successful POST). ``False`` when the entity already existed and
-        only verification happened. Used by the caller to log accurate
-        ``created`` vs ``verified`` messages.
+        a successful POST). ``False`` when the entity already existed, or
+        when a concurrent create returns HTTP 409. Used by the caller to log
+        accurate ``created`` vs ``verified`` messages.
 
     Raises:
-        urllib.error.HTTPError: Any non-404 GET error (or any POST error)
-            is re-raised to the tick loop so it can log the failure.
+        urllib.error.HTTPError: Any non-404 GET error, or any non-409 POST
+            error, is re-raised to the tick loop so it can log the failure.
     """
     try:
         request("GET", "/entities/fusion-track-baseline")

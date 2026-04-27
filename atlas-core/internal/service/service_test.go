@@ -77,6 +77,62 @@ func TestCreateTaskValidatesSupportedCommands(t *testing.T) {
 	}
 }
 
+func TestCreateTaskDistinguishesMissingAndWrongTypeCommandSections(t *testing.T) {
+	t.Parallel()
+	svc, stores, _ := setupServices(t)
+	setAssetSupportedCommands(stores, "move_to_location")
+	tests := []struct {
+		name      string
+		json      model.JSONMap
+		wantField string
+		wantCode  string
+	}{
+		{
+			name:      "missing components",
+			json:      model.JSONMap{},
+			wantField: "json.components",
+			wantCode:  "required",
+		},
+		{
+			name:      "components wrong type",
+			json:      model.JSONMap{"components": "bad"},
+			wantField: "json.components",
+			wantCode:  "invalid_type",
+		},
+		{
+			name:      "missing command",
+			json:      model.JSONMap{"components": map[string]any{}},
+			wantField: "json.components.command",
+			wantCode:  "required",
+		},
+		{
+			name:      "command wrong type",
+			json:      model.JSONMap{"components": map[string]any{"command": "bad"}},
+			wantField: "json.components.command",
+			wantCode:  "invalid_type",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: "task-1", AssetID: "asset-1", JSON: test.json})
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+			ce, ok := model.IsCoreError(err)
+			if !ok || ce.ErrorCode != "validation_failed" {
+				t.Fatalf("expected validation_failed, got %v", err)
+			}
+			fields, ok := ce.Details["fields"].([]model.FieldError)
+			if !ok || len(fields) == 0 {
+				t.Fatalf("expected field errors, got %#v", ce.Details["fields"])
+			}
+			if fields[0].Field != test.wantField || fields[0].Code != test.wantCode {
+				t.Fatalf("expected (%s, %s), got (%s, %s)", test.wantField, test.wantCode, fields[0].Field, fields[0].Code)
+			}
+		})
+	}
+}
+
 func TestCreateObservationValidatesSightingHistoryObject(t *testing.T) {
 	svc, stores, _ := setupServices(t)
 	setAssetSupportedCommands(stores, "move_to_location")

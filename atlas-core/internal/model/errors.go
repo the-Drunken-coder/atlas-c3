@@ -59,7 +59,7 @@ func ValidationError(fields ...FieldError) *CoreError {
 }
 
 func ImmutableFieldError(field string) *CoreError {
-	return NewCoreError(http.StatusBadRequest, "immutable_field", "immutable field update rejected", map[string]any{"fields": []FieldError{{Field: field, Code: "immutable", Message: "field is immutable"}}})
+	return ImmutableFieldsError(field)
 }
 
 func ImmutableFieldsError(fields ...string) *CoreError {
