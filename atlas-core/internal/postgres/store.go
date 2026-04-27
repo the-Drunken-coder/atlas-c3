@@ -504,7 +504,11 @@ func (s *Store) DeleteObjectFile(ctx context.Context, objectID, fileID string) e
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	return s.files.Delete(file.Path)
+	if err := s.files.Delete(file.Path); err != nil {
+		s.files.MarkMismatch("failed to delete object file from storage after database commit")
+		return err
+	}
+	return nil
 }
 
 func (s *Store) ListObjectFilesForObject(ctx context.Context, objectID string) ([]model.ObjectFile, error) {

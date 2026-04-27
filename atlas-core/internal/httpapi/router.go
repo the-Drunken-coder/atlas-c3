@@ -523,11 +523,16 @@ func readMultipartFormFieldString(part *multipart.Part) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request) {
-	maxFile := r.deps.MaxUploadBytes
-	if maxFile <= 0 {
-		maxFile = 16 * 1024 * 1024
+func (r *Router) maxUploadBytes() int64 {
+	m := r.deps.MaxUploadBytes
+	if m <= 0 {
+		return 16 * 1024 * 1024
 	}
+	return m
+}
+
+func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request) {
+	maxFile := r.maxUploadBytes()
 	req.Body = http.MaxBytesReader(w, req.Body, maxFile+multipartRequestOverhead)
 	mr, err := req.MultipartReader()
 	if err != nil {
@@ -600,6 +605,26 @@ parts:
 		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
 	}
+
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			r.writeError(w, req, r.mapMultipartReadError(err))
+			return
+		}
+		if part.FormName() == "file_id" {
+			_ = part.Close()
+			_ = r.deps.Services.DeleteObjectFile(req.Context(), objectID, fileID)
+			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
+			return
+		}
+		_, _ = io.Copy(io.Discard, part)
+		_ = part.Close()
+	}
+
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -654,10 +679,7 @@ func (r *Router) handleGetObjectFile(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) handleAppendObjectFile(w http.ResponseWriter, req *http.Request) {
-	maxB := r.deps.MaxUploadBytes
-	if maxB <= 0 {
-		maxB = 16 * 1024 * 1024
-	}
+	maxB := r.maxUploadBytes()
 	const appendBodyOverhead = 4096
 	req.Body = http.MaxBytesReader(w, req.Body, maxB+appendBodyOverhead)
 	item, err := r.deps.Services.AppendObjectFile(req.Context(), req.PathValue("object_id"), req.PathValue("file_id"), req.Body, maxB)

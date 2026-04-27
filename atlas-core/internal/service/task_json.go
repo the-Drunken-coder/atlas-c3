@@ -15,7 +15,7 @@ func mergeTaskJSONForPatch(current model.JSONMap, patch model.JSONMap, pending b
 		if len(patch) == 0 {
 			return model.CloneJSONMap(current), nil
 		}
-		return model.MergeNamedSections(current, patch), nil
+		return model.MergeNamedSections(current, model.CloneJSONMap(patch)), nil
 	}
 	if len(patch) == 0 {
 		return model.CloneJSONMap(current), nil
@@ -49,7 +49,10 @@ func mergeTaskComponentsOnlyProgressResultError(current, patch model.JSONMap) (m
 	if !ok {
 		return out, model.ValidationError(model.FieldError{Field: "json.components", Code: "invalid_type", Message: "components must be an object"})
 	}
-	orig, _ := out["components"].(map[string]any)
+	orig, ok := out["components"].(map[string]any)
+	if !ok && out["components"] != nil {
+		return out, model.ValidationError(model.FieldError{Field: "json.components", Code: "invalid_type", Message: "components must be an object"})
+	}
 	mergedComp := deepCloneStringAnyMap(orig)
 	if mergedComp == nil {
 		mergedComp = map[string]any{}

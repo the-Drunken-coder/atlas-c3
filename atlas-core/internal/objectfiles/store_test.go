@@ -1,6 +1,7 @@
 package objectfiles
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -17,12 +18,14 @@ func TestAppendOversizeRollsBackToPreSize(t *testing.T) {
 	if err := s.Promote(writableTemp(t, dir, "f", "hello"), logical); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	_, st0, _ := s.Open(logical)
+	f0, st0, _ := s.Open(logical)
+	f0.Close()
 	pre := st0.Size()
 	if _, _, err := s.Append(logical, strings.NewReader("xxxxx"), 2); err == nil {
 		t.Fatal("expected payload too large")
 	}
-	_, st1, _ := s.Open(logical)
+	f1, st1, _ := s.Open(logical)
+	f1.Close()
 	if st1.Size() != pre {
 		t.Fatalf("size after failed append: got %d want %d", st1.Size(), pre)
 	}
@@ -38,12 +41,14 @@ func TestAppendEmptyBodyDoesNotChangeSize(t *testing.T) {
 	if err := s.Promote(writableTemp(t, dir, "f", "zz"), path); err != nil {
 		t.Fatal(err)
 	}
-	_, s0, _ := s.Open(path)
+	f0, s0, _ := s.Open(path)
+	f0.Close()
 	pre := s0.Size()
 	if _, _, err := s.Append(path, strings.NewReader(""), 100); err == nil {
 		t.Fatal("expected empty body error")
 	}
-	_, s1, _ := s.Open(path)
+	f1, s1, _ := s.Open(path)
+	f1.Close()
 	if s1.Size() != pre {
 		t.Fatalf("size changed: %d vs %d", s1.Size(), pre)
 	}
@@ -51,7 +56,10 @@ func TestAppendEmptyBodyDoesNotChangeSize(t *testing.T) {
 
 func TestTruncateBack(t *testing.T) {
 	dir := t.TempDir()
-	s, _ := New(dir)
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := s.LogicalPath("a", "b")
 	if err := s.Promote(writableTemp(t, dir, "b", "1234"), path); err != nil {
 		t.Fatal(err)
@@ -59,7 +67,8 @@ func TestTruncateBack(t *testing.T) {
 	if err := s.TruncateBack(path, 2); err != nil {
 		t.Fatal(err)
 	}
-	_, st, _ := s.Open(path)
+	f, st, _ := s.Open(path)
+	f.Close()
 	if st.Size() != 2 {
 		t.Fatalf("size %d", st.Size())
 	}
@@ -88,18 +97,22 @@ func writableTemp(t *testing.T, root, name, content string) string {
 
 func TestAppendIOCopyErrorTruncates(t *testing.T) {
 	dir := t.TempDir()
-	s, _ := New(dir)
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	p := s.LogicalPath("o", "f")
 	if err := s.Promote(writableTemp(t, dir, "f", "abc"), p); err != nil {
 		t.Fatal(err)
 	}
 	r, w := io.Pipe()
-	_ = w.Close()
-	_, _, err := s.Append(p, r, 1000)
+	_ = w.CloseWithError(errors.New("mock read error"))
+	_, _, err = s.Append(p, r, 1000)
 	if err == nil {
 		t.Fatal("expected read error")
 	}
-	_, st, _ := s.Open(p)
+	f, st, _ := s.Open(p)
+	f.Close()
 	if st.Size() != 3 {
 		t.Fatalf("want size 3 after bad read, got %d", st.Size())
 	}

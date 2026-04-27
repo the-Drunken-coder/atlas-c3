@@ -198,6 +198,39 @@ func TestObjectFileUploadRejectsLegacyFileIDFormField(t *testing.T) {
 	}
 }
 
+func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
+	stores, router := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	// Add file_id AFTER the file part to bypass early rejection
+	if err := mw.WriteField("file_id", "f1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := stores.ObjectFiles["f1"]; ok {
+		t.Fatal("expected file to be deleted from store after late file_id rejection")
+	}
+	if _, ok := stores.FileBytes["f1"]; ok {
+		t.Fatal("expected file bytes to be deleted from store after late file_id rejection")
+	}
+}
+
 func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	_, router := testUploadRouter(t)
 	var body bytes.Buffer
