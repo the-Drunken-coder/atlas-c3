@@ -2,7 +2,6 @@ package service_test
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -80,8 +79,6 @@ func TestCreateTaskValidatesSupportedCommands(t *testing.T) {
 
 func TestCreateTaskDistinguishesMissingAndWrongTypeCommandSections(t *testing.T) {
 	t.Parallel()
-	svc, stores, _ := setupServices(t)
-	setAssetSupportedCommands(stores, "move_to_location")
 	tests := []struct {
 		name      string
 		json      model.JSONMap
@@ -113,9 +110,11 @@ func TestCreateTaskDistinguishesMissingAndWrongTypeCommandSections(t *testing.T)
 			wantCode:  "invalid_type",
 		},
 	}
-	for idx, test := range tests {
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: fmt.Sprintf("task-%d", idx), AssetID: "asset-1", JSON: test.json})
+			svc, stores, _ := setupServices(t)
+			setAssetSupportedCommands(stores, "move_to_location")
+			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: "task-1", AssetID: "asset-1", JSON: test.json})
 			if err == nil {
 				t.Fatal("expected validation error")
 			}

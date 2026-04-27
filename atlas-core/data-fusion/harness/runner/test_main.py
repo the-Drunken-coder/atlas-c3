@@ -14,21 +14,26 @@ MODULE_PATH = Path(__file__).with_name("main.py")
 _MODULE_COUNTER = 0
 
 
-def load_module(base_url: str | None):
-    """Load the runner module with a temporary ATLAS_CORE_BASE_URL value."""
+def import_runner_module():
+    """Import the harness runner module under a unique temporary module name."""
     global _MODULE_COUNTER
     _MODULE_COUNTER += 1
-    with mock.patch.dict(os.environ, {}, clear=False):
-        if base_url is None:
+    spec = importlib.util.spec_from_file_location(f"atlas_data_fusion_runner_test_{_MODULE_COUNTER}", MODULE_PATH)
+    if spec is None or spec.loader is None:
+        raise AssertionError("failed to load harness runner module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_module(base_url: str | None):
+    """Load the runner module with a temporary ATLAS_CORE_BASE_URL value."""
+    if base_url is None:
+        with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("ATLAS_CORE_BASE_URL", None)
-        else:
-            os.environ["ATLAS_CORE_BASE_URL"] = base_url
-        spec = importlib.util.spec_from_file_location(f"atlas_data_fusion_runner_test_{_MODULE_COUNTER}", MODULE_PATH)
-        if spec is None or spec.loader is None:
-            raise AssertionError("failed to load harness runner module")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+            return import_runner_module()
+    with mock.patch.dict(os.environ, {"ATLAS_CORE_BASE_URL": base_url}, clear=False):
+        return import_runner_module()
 
 
 class HarnessRunnerTests(unittest.TestCase):

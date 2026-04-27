@@ -7,7 +7,8 @@ import (
 
 // NormalizeContentType returns a normalized media type and whether the input
 // was a valid media type. Empty input is valid and normalizes to
-// application/octet-stream.
+// application/octet-stream. When parameters are present, they are included in
+// the normalized output using standard formatting.
 func NormalizeContentType(value string) (string, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
