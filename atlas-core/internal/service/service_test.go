@@ -114,7 +114,7 @@ func TestCreateTaskDistinguishesMissingAndWrongTypeCommandSections(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: "task-1", AssetID: "asset-1", JSON: test.json})
+			_, err := svc.CreateTask(context.Background(), service.TaskCreateInput{TaskID: "task-" + strings.ReplaceAll(test.name, " ", "-"), AssetID: "asset-1", JSON: test.json})
 			if err == nil {
 				t.Fatal("expected validation error")
 			}

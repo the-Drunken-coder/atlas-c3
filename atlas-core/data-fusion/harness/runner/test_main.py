@@ -18,10 +18,11 @@ def load_module(base_url: str | None):
     """Load the runner module with a temporary ATLAS_CORE_BASE_URL value."""
     global _MODULE_COUNTER
     _MODULE_COUNTER += 1
-    patched_env = {} if base_url is None else {"ATLAS_CORE_BASE_URL": base_url}
-    with mock.patch.dict(os.environ, patched_env, clear=False):
+    with mock.patch.dict(os.environ, {}, clear=False):
         if base_url is None:
             os.environ.pop("ATLAS_CORE_BASE_URL", None)
+        else:
+            os.environ["ATLAS_CORE_BASE_URL"] = base_url
         spec = importlib.util.spec_from_file_location(f"atlas_data_fusion_runner_test_{_MODULE_COUNTER}", MODULE_PATH)
         if spec is None or spec.loader is None:
             raise AssertionError("failed to load harness runner module")
