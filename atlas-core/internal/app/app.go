@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -42,6 +43,12 @@ func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, e
 	if err != nil {
 		return nil, err
 	}
+	closePoolOnError := true
+	defer func() {
+		if closePoolOnError {
+			pool.Close()
+		}
+	}()
 	if err := postgres.EnsureSchema(ctx, pool); err != nil {
 		return nil, err
 	}
@@ -52,21 +59,30 @@ func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, e
 	if err := files.Verify(); err != nil {
 		return nil, err
 	}
-	commandCatalog, commandReady := &catalog.Active{}, false
-	sightingCat, sightingReady := &sightingcatalog.Active{}, false
-	stores := postgres.NewStore(pool, files, cfg.MaxUploadBytes)
-	if loaded, err := catalog.Load(cfg.CommandCatalogPath); err == nil {
-		if materialized, err := catalog.Materialize(ctx, stores, loaded); err == nil {
-			commandCatalog.Set(materialized)
-			commandReady = true
-		}
+	commandCatalog := &catalog.Active{}
+	sightingCat := &sightingcatalog.Active{}
+	stores := postgres.NewStore(pool, files, cfg.MaxUploadBytes, logger.Component("postgres"))
+	if loaded, err := catalog.Load(cfg.CommandCatalogPath); err != nil {
+		logger.Component("app").WarnContext(ctx, "failed to load command catalog",
+			slog.String("path", cfg.CommandCatalogPath),
+			slog.String("error", err.Error()),
+		)
+	} else if materialized, err := catalog.Materialize(ctx, stores, loaded); err != nil {
+		logger.Component("app").WarnContext(ctx, "failed to materialize command catalog",
+			slog.String("path", cfg.CommandCatalogPath),
+			slog.String("error", err.Error()),
+		)
+	} else {
+		commandCatalog.Set(materialized)
 	}
-	if loaded, err := sightingcatalog.Load(cfg.SightingCatalogPath); err == nil {
+	if loaded, err := sightingcatalog.Load(cfg.SightingCatalogPath); err != nil {
+		logger.Component("app").WarnContext(ctx, "failed to load sighting catalog",
+			slog.String("path", cfg.SightingCatalogPath),
+			slog.String("error", err.Error()),
+		)
+	} else {
 		sightingCat.Set(loaded)
-		sightingReady = true
 	}
-	_ = commandReady
-	_ = sightingReady
 	hub := events.NewHub()
 	services := service.New(stores, commandCatalog, sightingCat, hub)
 	startedAt := time.Now().UTC()
@@ -74,6 +90,7 @@ func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, e
 	atlas.Router = httpapi.NewRouter(httpapi.Dependencies{
 		AllowedOrigins: cfg.AllowedOrigins,
 		StartedAt:      startedAt,
+		MaxUploadBytes: cfg.MaxUploadBytes,
 		Services:       services,
 		Events:         hub,
 		CommandCatalog: commandCatalog,
@@ -82,6 +99,7 @@ func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, e
 		Readiness:      func(ctx context.Context) (model.ReadinessResponse, int) { return atlas.Readiness(ctx) },
 		Descriptor:     atlas.ServiceDescriptor,
 	})
+	closePoolOnError = false
 	return atlas, nil
 }
 

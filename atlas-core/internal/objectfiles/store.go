@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 )
 
@@ -124,7 +124,8 @@ func (s *Store) Stage(ctx context.Context, objectID, fileID string, reader io.Re
 	if err := temp.Sync(); err != nil {
 		return "", 0, "", err
 	}
-	return temp.Name(), size, normalizeContentType(detectedType), nil
+	normalizedType, _ := mediatype.NormalizeContentType(detectedType)
+	return temp.Name(), size, normalizedType, nil
 }
 
 func (s *Store) Promote(stagePath, logicalPath string) error {
@@ -143,9 +144,7 @@ func (s *Store) Delete(logicalPath string) error {
 	if err != nil {
 		return err
 	}
-	if errors.Is(os.Remove(target), os.ErrNotExist) {
-		return nil
-	} else if err != nil {
+	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -168,49 +167,75 @@ func (s *Store) Open(logicalPath string) (io.ReadCloser, os.FileInfo, error) {
 	return file, stat, nil
 }
 
-func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (int64, error) {
+func (s *Store) TruncateBack(logicalPath string, size int64) error {
+	if size < 0 {
+		return fmt.Errorf("invalid truncate size %d", size)
+	}
 	target, err := s.AbsolutePath(logicalPath)
 	if err != nil {
-		return 0, err
+		return err
+	}
+	return os.Truncate(target, size)
+}
+
+// Append writes reader to the on-disk file at logicalPath in O_APPEND mode and
+// returns the actual pre-append disk size and the new disk size. Callers MUST
+// use preSize (not any database-recorded size) as the rollback truncate target
+// if a downstream operation fails: database metadata can be stale (a prior
+// commit may have failed and left the file ahead of metadata), so truncating
+// to a stale size would discard committed bytes that existed before this call.
+func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (preSize, newSize int64, err error) {
+	target, err := s.AbsolutePath(logicalPath)
+	if err != nil {
+		return 0, 0, err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
+	preStat, err := os.Stat(target)
+	if err != nil {
+		return 0, 0, err
+	}
+	preSize = preStat.Size()
 	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return 0, err
+		return preSize, 0, err
 	}
-	defer file.Close()
 	limiter := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	written, err := io.Copy(file, limiter)
 	if err != nil {
-		return 0, err
+		_ = file.Close()
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+		}
+		return preSize, 0, err
 	}
 	if written == 0 {
-		return 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
+		_ = file.Close()
+		return preSize, 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
 	}
 	if written > maxBytes {
-		return 0, model.PayloadTooLarge("append exceeds configured limit")
+		_ = file.Close()
+		payloadErr := model.PayloadTooLarge("append exceeds configured limit")
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", payloadErr, tr)
+		}
+		return preSize, 0, payloadErr
 	}
 	if err := file.Sync(); err != nil {
-		return 0, err
+		_ = file.Close()
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+		}
+		return preSize, 0, err
 	}
-	stat, err := file.Stat()
-	if err != nil {
-		return 0, err
+	if err := file.Close(); err != nil {
+		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
+			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
+		}
+		return preSize, 0, err
 	}
-	return stat.Size(), nil
-}
-
-func normalizeContentType(value string) string {
-	if value == "" {
-		return "application/octet-stream"
-	}
-	mediaType, _, err := mime.ParseMediaType(value)
-	if err != nil {
-		return value
-	}
-	return mediaType
+	return preSize, preSize + written, nil
 }
 
 func SafeUsageHint(value string) string {

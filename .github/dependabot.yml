@@ -1,0 +1,25 @@
+# Dependabot configuration.
+#
+# Why this exists: .github/workflows/ci.yml pins all GitHub Actions to full
+# commit SHAs for supply-chain integrity (a maintainer or attacker cannot
+# retag a release under us). Without an automated bot those pins drift and
+# the project misses upstream security fixes. Dependabot opens a single
+# grouped PR per week so review stays cheap — bump the SHA, let CI run, merge.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One grouped PR per week instead of N PRs per action — keeps CI churn low
+    # and lets reviewers verify the whole pinned set in a single context.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci
+      include: scope

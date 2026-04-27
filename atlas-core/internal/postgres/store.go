@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -24,10 +25,17 @@ type Store struct {
 	pool      *pgxpool.Pool
 	files     *objectfiles.Store
 	maxUpload int64
+	logger    *slog.Logger
 }
 
-func NewStore(pool *pgxpool.Pool, files *objectfiles.Store, maxUpload int64) *Store {
-	return &Store{pool: pool, files: files, maxUpload: maxUpload}
+// NewStore constructs a Store. logger is used for best-effort post-commit
+// cleanup paths where errors cannot be returned to the caller. If nil,
+// [slog.Default] is used.
+func NewStore(pool *pgxpool.Pool, files *objectfiles.Store, maxUpload int64, logger *slog.Logger) *Store {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Store{pool: pool, files: files, maxUpload: maxUpload, logger: logger}
 }
 
 func (s *Store) StorageStatus(context.Context) model.DependencyStatus {
@@ -164,7 +172,7 @@ func (s *Store) DeleteObservation(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	paths, err := filePathsForOwner(ctx, tx, "observation", id)
 	if err != nil {
 		return err
@@ -182,9 +190,7 @@ func (s *Store) DeleteObservation(ctx context.Context, id string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	for _, path := range paths {
-		_ = s.files.Delete(path)
-	}
+	s.postCommitObjectFilePathsDelete("observation", id, paths)
 	return nil
 }
 
@@ -314,7 +320,7 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	paths, err := filePathsForObject(ctx, tx, id)
 	if err != nil {
 		return err
@@ -329,12 +335,36 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	for _, path := range paths {
-		_ = s.files.Delete(path)
-	}
+	s.postCommitObjectFilePathsDelete("object", id, paths)
 	return nil
 }
 
+// postCommitObjectFilePathsDelete runs after the database transaction has committed. Disk
+// cleanup is best-effort: the delete already returned success to the caller; we log and
+// mark a mismatch if bytes remain so readiness reflects an operational problem.
+// This is not crash-proof cross-process atomicity: if the process dies after commit, files
+// may need a separate sweeper.
+//
+// Failures are logged per-path but do not short-circuit the loop: a transient failure on
+// one path must not strand the remaining paths as orphans. MarkMismatch is called once at
+// the end if any path failed.
+func (s *Store) postCommitObjectFilePathsDelete(contextLabel, resourceID string, paths []string) {
+	var hadFailure bool
+	for _, path := range paths {
+		if err := s.files.Delete(path); err != nil {
+			s.logger.Error("post-commit file delete failed after database delete; stored metadata no longer has this object",
+				"context", contextLabel,
+				"path", path,
+				"resource_id", resourceID,
+				"err", err,
+			)
+			hadFailure = true
+		}
+	}
+	if hadFailure {
+		s.files.MarkMismatch("post-delete file cleanup failed")
+	}
+}
 func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {
 	stagedPath, size, detectedType, err := s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
 	if err != nil {
@@ -354,7 +384,7 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := ensureObjectExists(ctx, tx, file.ObjectID); err != nil {
 		return model.ObjectFile{}, err
 	}
@@ -383,29 +413,48 @@ func (s *Store) GetObjectFile(ctx context.Context, objectID, fileID string) (mod
 	return file, nil
 }
 
+// AppendObjectFile appends to the on-disk file after locking the row, then updates
+// metadata. If the database update or commit fails after a successful write, the file
+// is truncated to the pre-append size (best-effort; not full cross-media crash atomicity).
 func (s *Store) AppendObjectFile(ctx context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (model.ObjectFile, error) {
-	file, err := s.GetObjectFile(ctx, objectID, fileID)
-	if err != nil {
-		return model.ObjectFile{}, err
-	}
-	newSize, err := s.files.Append(file.Path, reader, chooseLimit(maxBytes, s.maxUpload))
-	if err != nil {
-		return model.ObjectFile{}, err
-	}
-	now := time.Now().UTC()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
+	row := tx.QueryRow(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files WHERE file_id=$1 AND object_id=$2 FOR UPDATE`, fileID, objectID)
+	file, err := scanObjectFile(row)
+	if err != nil {
+		return model.ObjectFile{}, mapNotFound(err, "object_file", fileID)
+	}
+	// Roll back to the real pre-append disk size returned by Append, NOT to the
+	// DB-recorded size (file.SizeBytes). The DB and disk can already be out of
+	// sync (a prior commit failure raises MarkMismatch but leaves bytes on
+	// disk), and truncating to a stale metadata size would discard data that
+	// was on disk before this request.
+	preDisk, newSize, err := s.files.Append(file.Path, reader, chooseLimit(maxBytes, s.maxUpload))
+	if err != nil {
+		return model.ObjectFile{}, err
+	}
+	now := time.Now().UTC()
 	if _, err := tx.Exec(ctx, `UPDATE object_files SET size_bytes=$3, updated_at=$4 WHERE file_id=$1 AND object_id=$2`, fileID, objectID, newSize, now); err != nil {
+		if tr := s.files.TruncateBack(file.Path, preDisk); tr != nil {
+			s.files.MarkMismatch("object file append: database update failed; rollback truncate also failed: " + tr.Error())
+		}
 		return model.ObjectFile{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE objects SET updated_at=$2 WHERE object_id=$1`, objectID, now); err != nil {
+		if tr := s.files.TruncateBack(file.Path, preDisk); tr != nil {
+			s.files.MarkMismatch("object file append: object update failed; rollback truncate also failed: " + tr.Error())
+		}
 		return model.ObjectFile{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		s.files.MarkMismatch("object file bytes appended but metadata update failed")
+		if tr := s.files.TruncateBack(file.Path, preDisk); tr != nil {
+			s.files.MarkMismatch("object file append: commit failed; rollback truncate also failed: " + tr.Error())
+		} else {
+			s.files.MarkMismatch("object file bytes appended but database commit failed")
+		}
 		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{"object_id": objectID, "file_id": fileID})
 	}
 	return s.GetObjectFile(ctx, objectID, fileID)
@@ -441,7 +490,7 @@ func (s *Store) DeleteObjectFile(ctx context.Context, objectID, fileID string) e
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	result, err := tx.Exec(ctx, `DELETE FROM object_files WHERE file_id=$1 AND object_id=$2`, fileID, objectID)
 	if err != nil {
 		return err
@@ -455,7 +504,11 @@ func (s *Store) DeleteObjectFile(ctx context.Context, objectID, fileID string) e
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	return s.files.Delete(file.Path)
+	if err := s.files.Delete(file.Path); err != nil {
+		s.files.MarkMismatch("failed to delete object file from storage after database commit")
+		return err
+	}
+	return nil
 }
 
 func (s *Store) ListObjectFilesForObject(ctx context.Context, objectID string) ([]model.ObjectFile, error) {
@@ -480,7 +533,7 @@ func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error)
 	if err != nil {
 		return store.QueryState{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	state := store.QueryState{}
 	if rows, err := tx.Query(ctx, `SELECT entity_id, type, COALESCE(subtype,''), COALESCE(alias,''), json, created_at, updated_at FROM entities ORDER BY updated_at DESC, entity_id ASC`); err != nil {
 		return state, err

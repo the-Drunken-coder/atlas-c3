@@ -96,7 +96,11 @@ func ValidateSighting(active Catalog, sighting any) error {
 	if err := model.ValidateRFC3339Field("json.latest_sighting.observed_at", observedAt); err != nil {
 		return model.ValidationError(*err)
 	}
-	if inaccuracy, ok := sightingMap["observed_at_inaccuracy_ms"].(string); ok {
+	if raw, present := sightingMap["observed_at_inaccuracy_ms"]; present {
+		inaccuracy, ok := raw.(string)
+		if !ok {
+			return model.ValidationError(model.FieldError{Field: "json.latest_sighting.observed_at_inaccuracy_ms", Code: "invalid_type", Message: "observed_at_inaccuracy_ms must be a string"})
+		}
 		if err := model.ValidateInaccuracyString("json.latest_sighting.observed_at_inaccuracy_ms", inaccuracy); err != nil {
 			return model.ValidationError(*err)
 		}

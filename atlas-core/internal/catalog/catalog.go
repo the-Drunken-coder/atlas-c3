@@ -55,14 +55,29 @@ func Load(path string) (Catalog, error) {
 	if err := Validate(catalog); err != nil {
 		return Catalog{}, err
 	}
-	sum := sha256.Sum256(raw)
-	catalog.ContentHash = hex.EncodeToString(sum[:8])
-	catalog.ObjectID = fmt.Sprintf("command-catalog-%s", catalog.ContentHash)
+	catalog.ContentHash = ContentHashOfBytes(raw)
+	catalog.ObjectID = ObjectIDFromContentHash(catalog.ContentHash)
 	catalog.ByType = map[string]Command{}
 	for _, command := range catalog.Commands {
 		catalog.ByType[command.Type] = command
 	}
 	return catalog, nil
+}
+
+// ContentHashOfBytes returns the first 8 bytes of the SHA-256 of raw as hex, matching [Load] and [ObjectIDFromContentBytes].
+func ContentHashOfBytes(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:8])
+}
+
+// ObjectIDFromContentHash returns the object_id command-catalog-<8-hex> for a content hash.
+func ObjectIDFromContentHash(hash string) string {
+	return fmt.Sprintf("command-catalog-%s", hash)
+}
+
+// ObjectIDFromContentBytes returns the object_id command-catalog-<8-hex> for a catalog JSON body, matching [Load].
+func ObjectIDFromContentBytes(raw []byte) string {
+	return ObjectIDFromContentHash(ContentHashOfBytes(raw))
 }
 
 func Validate(catalog Catalog) error {
@@ -90,10 +105,15 @@ func Validate(catalog Catalog) error {
 			fields = append(fields, model.FieldError{Field: prefix + ".description", Code: "required", Message: "description is required"})
 		}
 		if err := ValidateSchema(command.ParametersSchema, prefix+".parameters_schema"); err != nil {
+			appended := false
 			if coreErr, ok := model.IsCoreError(err); ok {
 				if raw, ok := coreErr.Details["fields"].([]model.FieldError); ok {
 					fields = append(fields, raw...)
+					appended = true
 				}
+			}
+			if !appended {
+				fields = append(fields, model.FieldError{Field: prefix + ".parameters_schema", Code: "invalid_value", Message: err.Error()})
 			}
 		}
 	}

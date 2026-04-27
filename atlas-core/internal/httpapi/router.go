@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,7 +17,9 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/catalog"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/events"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/logging"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
@@ -24,6 +27,7 @@ import (
 type Dependencies struct {
 	AllowedOrigins []string
 	StartedAt      time.Time
+	MaxUploadBytes int64
 	Services       *service.Services
 	Events         *events.Hub
 	CommandCatalog *catalog.Active
@@ -33,10 +37,6 @@ type Dependencies struct {
 	Logger     *logging.Logger
 	Readiness  func(context.Context) (model.ReadinessResponse, int)
 	Descriptor func() (model.ServiceDescriptor, error)
-}
-
-type configLike interface {
-	GetAllowedOrigins() []string
 }
 
 type Router struct {
@@ -71,7 +71,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("GET /objects/{object_id}", router.handleGetObject)
 	mux.HandleFunc("PATCH /objects/{object_id}", router.handlePatchObject)
 	mux.HandleFunc("DELETE /objects/{object_id}", router.handleDeleteObject)
-	mux.HandleFunc("POST /objects/{object_id}/files", router.handleUploadObjectFile)
+	mux.HandleFunc("POST /objects/{object_id}/files/{file_id}", router.handleUploadObjectFile)
 	mux.HandleFunc("GET /objects/{object_id}/files/{file_id}", router.handleGetObjectFile)
 	mux.HandleFunc("POST /objects/{object_id}/files/{file_id}/append", router.handleAppendObjectFile)
 	mux.HandleFunc("GET /objects/{object_id}/files/{file_id}/content", router.handleGetObjectFileContent)
@@ -106,7 +106,7 @@ func (r *Router) wrap(next http.Handler) http.Handler {
 		ww := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				writeError(ww, req, model.InternalError("internal server error", fmt.Errorf("panic: %v", recovered)))
+				r.writeError(ww, req, model.InternalError("internal server error", fmt.Errorf("panic: %v", recovered)))
 			}
 			if r.deps.Logger != nil {
 				r.deps.Logger.Component("api").InfoContext(req.Context(), "request complete",
@@ -145,7 +145,7 @@ func allowedOrigin(deps Dependencies, origin string) bool {
 func (r *Router) handleDescriptor(w http.ResponseWriter, req *http.Request) {
 	descriptor, err := r.deps.Descriptor()
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, descriptor)
@@ -162,17 +162,17 @@ func (r *Router) handleReadiness(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleListEntities(w http.ResponseWriter, req *http.Request) {
 	if err := rejectUnknownQuery(req, "type", "limit", "offset"); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	pagination, pageErr := model.ParsePagination(req.URL.Query())
 	if pageErr != nil {
-		writeError(w, req, pageErr)
+		r.writeError(w, req, pageErr)
 		return
 	}
 	items, total, err := r.deps.Services.ListEntities(req.Context(), store.EntityListFilter{Type: req.URL.Query().Get("type")}, pagination)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writePaginatedJSON(w, http.StatusOK, items, pagination, total)
@@ -181,17 +181,17 @@ func (r *Router) handleListEntities(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "entity_id", "type", "subtype", "alias", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	input := service.EntityCreateInput{EntityID: readString(payload, "entity_id"), Type: readString(payload, "type"), Subtype: readString(payload, "subtype"), Alias: readString(payload, "alias"), JSON: readJSONMap(payload["json"])}
 	entity, err := r.deps.Services.CreateEntity(req.Context(), input)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, entity)
@@ -200,7 +200,7 @@ func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleGetEntity(w http.ResponseWriter, req *http.Request) {
 	item, err := r.deps.Services.GetEntity(req.Context(), req.PathValue("entity_id"))
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -209,11 +209,11 @@ func (r *Router) handleGetEntity(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "subtype", "alias", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	var subtype *string
@@ -228,7 +228,7 @@ func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 	}
 	entity, err := r.deps.Services.PatchEntity(req.Context(), req.PathValue("entity_id"), service.EntityPatchInput{Subtype: subtype, Alias: alias, JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, entity)
@@ -236,7 +236,7 @@ func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleDeleteEntity(w http.ResponseWriter, req *http.Request) {
 	if err := r.deps.Services.DeleteEntity(req.Context(), req.PathValue("entity_id")); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -244,17 +244,17 @@ func (r *Router) handleDeleteEntity(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleListEntityTasks(w http.ResponseWriter, req *http.Request) {
 	if err := rejectUnknownQuery(req, "limit", "offset"); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	pagination, pageErr := model.ParsePagination(req.URL.Query())
 	if pageErr != nil {
-		writeError(w, req, pageErr)
+		r.writeError(w, req, pageErr)
 		return
 	}
 	items, total, err := r.deps.Services.ListEntityTasks(req.Context(), req.PathValue("entity_id"), pagination)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writePaginatedJSON(w, http.StatusOK, items, pagination, total)
@@ -262,17 +262,24 @@ func (r *Router) handleListEntityTasks(w http.ResponseWriter, req *http.Request)
 
 func (r *Router) handleListObservations(w http.ResponseWriter, req *http.Request) {
 	if err := rejectUnknownQuery(req, "source_asset_id", "updated_after", "limit", "offset"); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	pagination, pageErr := model.ParsePagination(req.URL.Query())
 	if pageErr != nil {
-		writeError(w, req, pageErr)
+		r.writeError(w, req, pageErr)
 		return
 	}
-	items, total, err := r.deps.Services.ListObservations(req.Context(), store.ObservationListFilter{SourceAssetID: req.URL.Query().Get("source_asset_id"), UpdatedAfter: req.URL.Query().Get("updated_after")}, pagination)
+	updatedAfter := req.URL.Query().Get("updated_after")
+	if updatedAfter != "" {
+		if _, err := time.Parse(time.RFC3339, updatedAfter); err != nil {
+			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "updated_after", Code: "invalid_value", Message: "updated_after must be a valid RFC3339 timestamp"}))
+			return
+		}
+	}
+	items, total, err := r.deps.Services.ListObservations(req.Context(), store.ObservationListFilter{SourceAssetID: req.URL.Query().Get("source_asset_id"), UpdatedAfter: updatedAfter}, pagination)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writePaginatedJSON(w, http.StatusOK, items, pagination, total)
@@ -281,16 +288,16 @@ func (r *Router) handleListObservations(w http.ResponseWriter, req *http.Request
 func (r *Router) handleCreateObservation(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "observation_id", "source_asset_id", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: readString(payload, "observation_id"), SourceAssetID: readString(payload, "source_asset_id"), JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -299,7 +306,7 @@ func (r *Router) handleCreateObservation(w http.ResponseWriter, req *http.Reques
 func (r *Router) handleGetObservation(w http.ResponseWriter, req *http.Request) {
 	item, err := r.deps.Services.GetObservation(req.Context(), req.PathValue("observation_id"))
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -308,16 +315,16 @@ func (r *Router) handleGetObservation(w http.ResponseWriter, req *http.Request) 
 func (r *Router) handlePatchObservation(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	item, err := r.deps.Services.PatchObservation(req.Context(), req.PathValue("observation_id"), service.ObservationPatchInput{JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -325,7 +332,7 @@ func (r *Router) handlePatchObservation(w http.ResponseWriter, req *http.Request
 
 func (r *Router) handleDeleteObservation(w http.ResponseWriter, req *http.Request) {
 	if err := r.deps.Services.DeleteObservation(req.Context(), req.PathValue("observation_id")); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -333,17 +340,17 @@ func (r *Router) handleDeleteObservation(w http.ResponseWriter, req *http.Reques
 
 func (r *Router) handleListTasks(w http.ResponseWriter, req *http.Request) {
 	if err := rejectUnknownQuery(req, "asset_id", "status", "limit", "offset"); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	pagination, pageErr := model.ParsePagination(req.URL.Query())
 	if pageErr != nil {
-		writeError(w, req, pageErr)
+		r.writeError(w, req, pageErr)
 		return
 	}
 	items, total, err := r.deps.Services.ListTasks(req.Context(), store.TaskListFilter{AssetID: req.URL.Query().Get("asset_id"), Status: req.URL.Query().Get("status")}, pagination)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writePaginatedJSON(w, http.StatusOK, items, pagination, total)
@@ -352,16 +359,16 @@ func (r *Router) handleListTasks(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleCreateTask(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "task_id", "asset_id", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: readString(payload, "task_id"), AssetID: readString(payload, "asset_id"), JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -370,7 +377,7 @@ func (r *Router) handleCreateTask(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleGetTask(w http.ResponseWriter, req *http.Request) {
 	item, err := r.deps.Services.GetTask(req.Context(), req.PathValue("task_id"))
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -379,16 +386,16 @@ func (r *Router) handleGetTask(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handlePatchTask(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	item, err := r.deps.Services.PatchTask(req.Context(), req.PathValue("task_id"), service.TaskPatchInput{JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -396,7 +403,7 @@ func (r *Router) handlePatchTask(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleDeleteTask(w http.ResponseWriter, req *http.Request) {
 	if err := r.deps.Services.DeleteTask(req.Context(), req.PathValue("task_id")); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -405,16 +412,16 @@ func (r *Router) handleDeleteTask(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleTaskStatus(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "status", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: readString(payload, "status"), JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -422,21 +429,21 @@ func (r *Router) handleTaskStatus(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleListObjects(w http.ResponseWriter, req *http.Request) {
 	if err := rejectUnknownQuery(req, "owner_type", "owner_id", "type", "limit", "offset"); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if (req.URL.Query().Get("owner_type") == "") != (req.URL.Query().Get("owner_id") == "") {
-		writeError(w, req, model.ValidationError(model.FieldError{Field: "owner", Code: "required", Message: "owner_type and owner_id must be provided together"}))
+		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "owner", Code: "required", Message: "owner_type and owner_id must be provided together"}))
 		return
 	}
 	pagination, pageErr := model.ParsePagination(req.URL.Query())
 	if pageErr != nil {
-		writeError(w, req, pageErr)
+		r.writeError(w, req, pageErr)
 		return
 	}
 	items, total, err := r.deps.Services.ListObjects(req.Context(), store.ObjectListFilter{OwnerType: req.URL.Query().Get("owner_type"), OwnerID: req.URL.Query().Get("owner_id"), Type: req.URL.Query().Get("type")}, pagination)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writePaginatedJSON(w, http.StatusOK, items, pagination, total)
@@ -445,16 +452,16 @@ func (r *Router) handleListObjects(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleCreateObject(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "object_id", "type", "owner_type", "owner_id", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: readString(payload, "object_id"), Type: readString(payload, "type"), OwnerType: readString(payload, "owner_type"), OwnerID: readString(payload, "owner_id"), JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -463,7 +470,7 @@ func (r *Router) handleCreateObject(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleGetObject(w http.ResponseWriter, req *http.Request) {
 	item, err := r.deps.Services.GetObject(req.Context(), req.PathValue("object_id"))
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -472,11 +479,11 @@ func (r *Router) handleGetObject(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 	payload, raw, err := decodeJSON(req.Body)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	if unknown := model.TopLevelUnknownFields(raw, "type", "json"); len(unknown) > 0 {
-		writeError(w, req, validationUnknownFields(unknown...))
+		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
 	var objectType *string
@@ -486,7 +493,7 @@ func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 	}
 	item, err := r.deps.Services.PatchObject(req.Context(), req.PathValue("object_id"), service.ObjectPatchInput{Type: objectType, JSON: readJSONMap(payload["json"])})
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -494,49 +501,190 @@ func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleDeleteObject(w http.ResponseWriter, req *http.Request) {
 	if err := r.deps.Services.DeleteObject(req.Context(), req.PathValue("object_id")); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
+const (
+	multipartRequestOverhead = 256 << 10
+	smallFormFieldMax        = 64 * 1024
+)
+
+func readMultipartFormFieldString(part *multipart.Part) (string, error) {
+	b, err := io.ReadAll(io.LimitReader(part, smallFormFieldMax+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(b)) > smallFormFieldMax {
+		return "", model.PayloadTooLarge("form field is too large")
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func (r *Router) maxUploadBytes() int64 {
+	m := r.deps.MaxUploadBytes
+	if m <= 0 {
+		return 16 * 1024 * 1024
+	}
+	return m
+}
+
 func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request) {
-	if err := req.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "invalid multipart form"}))
-		return
-	}
-	fileID := req.FormValue("file_id")
-	if fileID == "" {
-		writeError(w, req, model.ValidationError(model.FieldError{Field: "file_id", Code: "required", Message: "file_id is required"}))
-		return
-	}
-	reader, header, err := req.FormFile("file")
+	maxFile := r.maxUploadBytes()
+	req.Body = http.MaxBytesReader(w, req.Body, maxFile+multipartRequestOverhead)
+	mr, err := req.MultipartReader()
 	if err != nil {
-		writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file upload is required"}))
+		r.writeError(w, req, r.mapMultipartReaderError(err))
 		return
 	}
-	defer reader.Close()
-	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: req.PathValue("object_id"), UsageHint: req.FormValue("usage_hint"), ContentType: contentTypeFromMultipart(header, req.FormValue("content_type"))}, Reader: reader, MaxBytes: 0})
+	objectID := req.PathValue("object_id")
+	fileID := req.PathValue("file_id")
+	var usageHint, contentTypeOverride string
+	var filePart *multipart.Part
+parts:
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			r.writeError(w, req, r.mapMultipartReadError(err))
+			return
+		}
+		name := part.FormName()
+		switch name {
+		case "file_id":
+			_ = part.Close()
+			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
+			return
+		case "usage_hint":
+			v, perr := readMultipartFormFieldString(part)
+			_ = part.Close()
+			if perr != nil {
+				r.writeError(w, req, r.mapMultipartReadError(perr))
+				return
+			}
+			usageHint = v
+		case "content_type":
+			v, perr := readMultipartFormFieldString(part)
+			_ = part.Close()
+			if perr != nil {
+				r.writeError(w, req, r.mapMultipartReadError(perr))
+				return
+			}
+			contentTypeOverride = v
+		case "file":
+			if filePart != nil {
+				_ = part.Close()
+				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "invalid_value", Message: "only one file part is allowed"}))
+				return
+			}
+			// The file part must be the last part we read: another NextPart() would
+			// discard the unread file body (see mime/multipart.Reader docs).
+			filePart = part
+			break parts
+		default:
+			_, _ = io.Copy(io.Discard, part)
+			_ = part.Close()
+		}
+	}
+	if filePart == nil {
+		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file upload is required"}))
+		return
+	}
+	defer filePart.Close()
+	contentType, err := filePartContentType(filePart, contentTypeOverride)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
+	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: contentType}, Reader: filePart, MaxBytes: maxFile})
+	if err != nil {
+		r.writeError(w, req, r.mapChunkedReadError(err))
+		return
+	}
+
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			r.writeError(w, req, r.mapMultipartReadError(err))
+			return
+		}
+		if part.FormName() == "file_id" {
+			_ = part.Close()
+			_ = r.deps.Services.DeleteObjectFile(req.Context(), objectID, fileID)
+			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
+			return
+		}
+		_, _ = io.Copy(io.Discard, part)
+		_ = part.Close()
+	}
+
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func (r *Router) mapMultipartReaderError(err error) error {
+	if errors.Is(err, http.ErrNotMultipart) {
+		return model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "multipart form required"})
+	}
+	if errors.Is(err, http.ErrMissingBoundary) {
+		return model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "multipart form boundary is required"})
+	}
+	return r.mapChunkedReadError(err)
+}
+
+func (r *Router) mapMultipartReadError(err error) error {
+	if errors.Is(err, io.EOF) {
+		return model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "truncated multipart body"})
+	}
+	return r.mapChunkedReadError(err)
+}
+
+func (r *Router) mapChunkedReadError(err error) error {
+	var mbe *http.MaxBytesError
+	if errors.As(err, &mbe) {
+		return model.PayloadTooLarge("request body or upload exceeds size limit")
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return model.ValidationError(model.FieldError{Field: "body", Code: "invalid_value", Message: "request body is incomplete or truncated"})
+	}
+	return err
+}
+
+func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
+	if formOverride != "" {
+		normalized, valid := mediatype.NormalizeContentType(formOverride)
+		if !valid {
+			return "", model.ValidationError(model.FieldError{Field: "content_type", Code: "invalid_value", Message: "content_type must be a valid media type"})
+		}
+		return normalized, nil
+	}
+	ct := p.Header.Get("Content-Type")
+	normalized, _ := mediatype.NormalizeContentType(ct)
+	return normalized, nil
 }
 
 func (r *Router) handleGetObjectFile(w http.ResponseWriter, req *http.Request) {
 	item, err := r.deps.Services.GetObjectFile(req.Context(), req.PathValue("object_id"), req.PathValue("file_id"))
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
 }
 
 func (r *Router) handleAppendObjectFile(w http.ResponseWriter, req *http.Request) {
-	item, err := r.deps.Services.AppendObjectFile(req.Context(), req.PathValue("object_id"), req.PathValue("file_id"), req.Body, 0)
+	maxB := r.maxUploadBytes()
+	const appendBodyOverhead = 4096
+	req.Body = http.MaxBytesReader(w, req.Body, maxB+appendBodyOverhead)
+	item, err := r.deps.Services.AppendObjectFile(req.Context(), req.PathValue("object_id"), req.PathValue("file_id"), req.Body, maxB)
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -545,11 +693,12 @@ func (r *Router) handleAppendObjectFile(w http.ResponseWriter, req *http.Request
 func (r *Router) handleGetObjectFileContent(w http.ResponseWriter, req *http.Request) {
 	meta, rc, err := r.deps.Services.OpenObjectFile(req.Context(), req.PathValue("object_id"), req.PathValue("file_id"))
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	defer rc.Close()
-	w.Header().Set("Content-Type", meta.ContentType)
+	contentType, _ := mediatype.NormalizeContentType(meta.ContentType)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", meta.SizeBytes))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, rc)
@@ -557,7 +706,7 @@ func (r *Router) handleGetObjectFileContent(w http.ResponseWriter, req *http.Req
 
 func (r *Router) handleDeleteObjectFile(w http.ResponseWriter, req *http.Request) {
 	if err := r.deps.Services.DeleteObjectFile(req.Context(), req.PathValue("object_id"), req.PathValue("file_id")); err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -566,7 +715,7 @@ func (r *Router) handleDeleteObjectFile(w http.ResponseWriter, req *http.Request
 func (r *Router) handleFullQuery(w http.ResponseWriter, req *http.Request) {
 	snapshot, err := r.deps.Services.FullQuery(req.Context())
 	if err != nil {
-		writeError(w, req, err)
+		r.writeError(w, req, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
@@ -575,7 +724,7 @@ func (r *Router) handleFullQuery(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleStream(w http.ResponseWriter, req *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeError(w, req, model.InternalError("streaming unsupported", nil))
+		r.writeError(w, req, model.InternalError("streaming unsupported", nil))
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -592,7 +741,13 @@ func (r *Router) handleStream(w http.ResponseWriter, req *http.Request) {
 		case <-keepAlive.C:
 			_, _ = w.Write([]byte(": keepalive\n\n"))
 			flusher.Flush()
-		case event := <-ch:
+		case event, ok := <-ch:
+			if !ok {
+				// The hub closed our channel because we couldn't keep up
+				// (slow-subscriber eviction). End the stream so the client
+				// reconnects and re-snapshots state from /queries/full.
+				return
+			}
 			payload, err := events.EncodeSSE(event)
 			if err != nil {
 				return
@@ -603,10 +758,15 @@ func (r *Router) handleStream(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+const maxJSONBodyBytes = 4 << 20
+
 func decodeJSON(body io.Reader) (map[string]any, map[string]json.RawMessage, error) {
-	rawBody, err := io.ReadAll(io.LimitReader(body, 4<<20))
+	rawBody, err := io.ReadAll(io.LimitReader(body, maxJSONBodyBytes+1))
 	if err != nil {
 		return nil, nil, model.ValidationError(model.FieldError{Field: "body", Code: "invalid_value", Message: "unable to read request body"})
+	}
+	if int64(len(rawBody)) > maxJSONBodyBytes {
+		return nil, nil, model.PayloadTooLarge("request body exceeds maximum allowed size")
 	}
 	if len(strings.TrimSpace(string(rawBody))) == 0 {
 		return map[string]any{}, map[string]json.RawMessage{}, nil
@@ -684,12 +844,28 @@ func writePaginatedJSON(w http.ResponseWriter, status int, value any, pagination
 	writeJSON(w, status, value)
 }
 
-func writeError(w http.ResponseWriter, req *http.Request, err error) {
+// writeError serializes a CoreError (wrapping unknown errors as InternalError)
+// into the standard ErrorEnvelope and writes it. Any underlying cause attached
+// to the CoreError is logged server-side, correlated with the generated
+// error_id and the request_id from context, and is intentionally NOT included
+// in the response to avoid leaking implementation details to API clients.
+func (r *Router) writeError(w http.ResponseWriter, req *http.Request, err error) {
 	coreErr, ok := model.IsCoreError(err)
 	if !ok {
 		coreErr = model.InternalError("internal server error", err)
 	}
-	envelope := model.ErrorEnvelope{Success: false, Message: coreErr.Message, ErrorCode: coreErr.ErrorCode, ErrorID: newID(), Timestamp: time.Now().UTC(), Path: req.URL.Path, Details: coreErr.Details}
+	errorID := newID()
+	if r.deps.Logger != nil && coreErr.Cause() != nil {
+		r.deps.Logger.Component("api").ErrorContext(req.Context(), "request error",
+			slog.String("event", "api.error"),
+			slog.String("request_id", logging.RequestID(req.Context())),
+			slog.String("error_id", errorID),
+			slog.Int("status", coreErr.StatusCode),
+			slog.String("error_code", coreErr.ErrorCode),
+			slog.String("cause", coreErr.Cause().Error()),
+		)
+	}
+	envelope := model.ErrorEnvelope{Success: false, Message: coreErr.Message, ErrorCode: coreErr.ErrorCode, ErrorID: errorID, Timestamp: time.Now().UTC(), Path: req.URL.Path, Details: coreErr.Details}
 	writeJSON(w, coreErr.StatusCode, envelope)
 }
 
@@ -699,11 +875,4 @@ func newID() string {
 		return fmt.Sprintf("err-%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(buffer)
-}
-
-func contentTypeFromMultipart(header *multipart.FileHeader, fallback string) string {
-	if header.Header.Get("Content-Type") != "" {
-		return header.Header.Get("Content-Type")
-	}
-	return fallback
 }

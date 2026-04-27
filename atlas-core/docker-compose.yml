@@ -40,7 +40,7 @@ services:
     volumes:
       - atlas-core-object-storage:/data/object-storage
     healthcheck:
-      test: ["CMD", "/busybox/wget", "-qO-", "http://127.0.0.1:8080/readiness"]
+      test: ["CMD", "/usr/bin/wget", "-qO-", "http://127.0.0.1:8080/readiness"]
       interval: 5s
       timeout: 5s
       retries: 20

@@ -28,7 +28,12 @@ func Load(rootDir string) (Config, error) {
 	cfg := Config{
 		Host:                envOrDefault("ATLAS_CORE_HOST", "0.0.0.0"),
 		Port:                envIntOrDefault("ATLAS_CORE_PORT", 8080),
-		DatabaseURL:         envOrDefault("ATLAS_CORE_DATABASE_URL", "postgres://postgres:postgres@localhost:5432/atlas_core?sslmode=disable"),
+		// ATLAS_CORE_DATABASE_URL must be supplied explicitly. There is no
+		// default — a hard-coded localhost fallback would silently let dev or
+		// prod processes connect to an unintended database. The compose file
+		// sets this for local docker runs; CI/prod environments must set it
+		// in their own configuration.
+		DatabaseURL:         strings.TrimSpace(os.Getenv("ATLAS_CORE_DATABASE_URL")),
 		ObjectStorageRoot:   envOrDefault("ATLAS_CORE_OBJECT_STORAGE_ROOT", filepath.Join(rootDir, "var", "object-storage")),
 		CommandCatalogPath:  envOrDefault("ATLAS_CORE_COMMAND_CATALOG_PATH", filepath.Join(rootDir, "command-catalog", "catalog.json")),
 		SightingCatalogPath: envOrDefault("ATLAS_CORE_SIGHTING_CATALOG_PATH", filepath.Join(rootDir, "sighting-catalog", "catalog.json")),

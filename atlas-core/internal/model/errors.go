@@ -28,10 +28,26 @@ type CoreError struct {
 	ErrorCode  string
 	Message    string
 	Details    map[string]any
+	// cause is the underlying error, kept server-side only. It is never
+	// serialized into the API response — the response contains a generated
+	// error_id which the router logs alongside the cause for correlation.
+	cause error
 }
 
 func (e *CoreError) Error() string {
 	return fmt.Sprintf("%s: %s", e.ErrorCode, e.Message)
+}
+
+// Cause returns the underlying error captured server-side. Callers (the HTTP
+// router) use this to log the real failure correlated with the response
+// error_id, without leaking it to API consumers.
+func (e *CoreError) Cause() error {
+	return e.cause
+}
+
+// Unwrap exposes the cause for errors.Is / errors.As.
+func (e *CoreError) Unwrap() error {
+	return e.cause
 }
 
 func NewCoreError(status int, code, message string, details map[string]any) *CoreError {
@@ -43,7 +59,15 @@ func ValidationError(fields ...FieldError) *CoreError {
 }
 
 func ImmutableFieldError(field string) *CoreError {
-	return NewCoreError(http.StatusBadRequest, "immutable_field", "immutable field update rejected", map[string]any{"fields": []FieldError{{Field: field, Code: "immutable", Message: "field is immutable"}}})
+	return ImmutableFieldsError(field)
+}
+
+func ImmutableFieldsError(fields ...string) *CoreError {
+	fieldErrors := make([]FieldError, 0, len(fields))
+	for _, field := range fields {
+		fieldErrors = append(fieldErrors, FieldError{Field: field, Code: "immutable", Message: "field is immutable"})
+	}
+	return NewCoreError(http.StatusBadRequest, "immutable_field", "immutable field update rejected", map[string]any{"fields": fieldErrors})
 }
 
 func CommandValidationError(message string, fields ...FieldError) *CoreError {
@@ -62,11 +86,20 @@ func NotFound(resourceType, resourceID string) *CoreError {
 	return NewCoreError(http.StatusNotFound, "not_found", fmt.Sprintf("%s not found", resourceType), map[string]any{"resource_type": resourceType, "resource_id": resourceID})
 }
 
+// Conflict builds a 409 CoreError. The named arguments resourceType, resourceID,
+// and reason are authoritative and will overwrite any identically-keyed values
+// passed in extra — this is intentional, so the API response always carries a
+// consistent shape regardless of caller input. Use extra only for auxiliary
+// context (e.g. "conflicting_field", "existing_id"), never to override the
+// canonical identity/reason fields.
 func Conflict(resourceType, resourceID, reason string, extra map[string]any) *CoreError {
-	details := map[string]any{"resource_type": resourceType, "resource_id": resourceID, "reason": reason}
+	details := map[string]any{}
 	for k, v := range extra {
 		details[k] = v
 	}
+	details["resource_type"] = resourceType
+	details["resource_id"] = resourceID
+	details["reason"] = reason
 	return NewCoreError(http.StatusConflict, "conflict", "resource conflict", details)
 }
 
@@ -87,11 +120,9 @@ func CatalogUnavailable(message string, details map[string]any) *CoreError {
 }
 
 func InternalError(message string, err error) *CoreError {
-	details := map[string]any{}
-	if err != nil {
-		details["cause"] = err.Error()
-	}
-	return NewCoreError(http.StatusInternalServerError, "internal_error", message, details)
+	ce := NewCoreError(http.StatusInternalServerError, "internal_error", message, nil)
+	ce.cause = err
+	return ce
 }
 
 func IsCoreError(err error) (*CoreError, bool) {

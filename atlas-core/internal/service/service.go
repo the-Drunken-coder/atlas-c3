@@ -225,7 +225,7 @@ func (s *Services) CreateTask(ctx context.Context, input TaskCreateInput) (model
 	if !ok {
 		return model.Task{}, model.CatalogUnavailable("active command catalog is unavailable", nil)
 	}
-	if err := validateTaskCommand(input.JSON, activeCatalog, asset, true); err != nil {
+	if err := validateTaskCommand(input.JSON, activeCatalog, asset); err != nil {
 		return model.Task{}, err
 	}
 	task := model.Task{TaskID: input.TaskID, Status: "pending", AssetID: input.AssetID, CommandCatalogObjectID: activeCatalog.ObjectID, JSON: model.NormalizeJSONMap(input.JSON), CreatedAt: s.now(), UpdatedAt: s.now()}
@@ -250,27 +250,40 @@ func (s *Services) PatchTask(ctx context.Context, id string, patch TaskPatchInpu
 	if err != nil {
 		return model.Task{}, err
 	}
-	if current.Status == "completed" || current.Status == "failed" {
+	var nextJSON model.JSONMap
+	var mErr error
+	if current.Status == "pending" {
 		if patch.JSON != nil {
-			if components, ok := patch.JSON["components"].(map[string]any); ok {
-				for key := range components {
-					if key != "progress" && key != "result" && key != "error" {
-						return model.Task{}, model.ImmutableFieldError("json.components." + key)
-					}
-				}
-			}
+			nextJSON, mErr = mergeTaskJSONForPatch(current.JSON, patch.JSON, true)
+		} else {
+			nextJSON = model.CloneJSONMap(current.JSON)
+		}
+	} else {
+		if patch.JSON != nil {
+			nextJSON, mErr = mergeTaskJSONForPatch(current.JSON, patch.JSON, false)
+		} else {
+			nextJSON = model.CloneJSONMap(current.JSON)
 		}
 	}
-	nextJSON := model.MergeNamedSections(current.JSON, patch.JSON)
+	if mErr != nil {
+		return model.Task{}, mErr
+	}
+	if current.Status != "pending" && !taskCommandAndParametersEqual(current.JSON, nextJSON) {
+		return model.Task{}, model.ImmutableFieldsError("json.components.command", "json.components.parameters")
+	}
 	cat, err := s.loadPinnedCatalog(ctx, current.CommandCatalogObjectID)
 	if err != nil {
 		return model.Task{}, err
 	}
-	asset, err := s.stores.GetEntity(ctx, current.AssetID)
-	if err != nil {
-		return model.Task{}, err
-	}
-	if err := validateTaskCommand(nextJSON, cat, asset, current.Status == "pending"); err != nil {
+	if current.Status == "pending" {
+		asset, err := s.stores.GetEntity(ctx, current.AssetID)
+		if err != nil {
+			return model.Task{}, err
+		}
+		if err := validateTaskCommand(nextJSON, cat, asset); err != nil {
+			return model.Task{}, err
+		}
+	} else if _, err := validateTaskCommandCatalog(nextJSON, cat); err != nil {
 		return model.Task{}, err
 	}
 	current.JSON = nextJSON
@@ -294,10 +307,22 @@ func (s *Services) TransitionTaskStatus(ctx context.Context, id string, input Ta
 	if !allowedTaskTransition(task.Status, input.Status) {
 		return model.Task{}, model.InvalidStatusTransition(task.Status, input.Status)
 	}
-	task.Status = input.Status
-	if input.JSON != nil {
-		task.JSON = model.MergeNamedSections(task.JSON, input.JSON)
+	merged, mErr := mergeTaskJSONForStatusTransition(task.JSON, input.JSON)
+	if mErr != nil {
+		return model.Task{}, mErr
 	}
+	if !taskCommandAndParametersEqual(task.JSON, merged) {
+		return model.Task{}, model.ImmutableFieldsError("json.components.command", "json.components.parameters")
+	}
+	cat, err := s.loadPinnedCatalog(ctx, task.CommandCatalogObjectID)
+	if err != nil {
+		return model.Task{}, err
+	}
+	if _, err := validateTaskCommandCatalog(merged, cat); err != nil {
+		return model.Task{}, err
+	}
+	task.Status = input.Status
+	task.JSON = merged
 	task.UpdatedAt = s.now()
 	updated, err := s.stores.UpdateTask(ctx, task)
 	if err != nil {
@@ -455,31 +480,53 @@ func (s *Services) publishObject(ctx context.Context, mutation, objectID string,
 
 func (s *Services) loadPinnedCatalog(ctx context.Context, objectID string) (catalog.Catalog, error) {
 	if active, ok := s.commands.Get(); ok && active.ObjectID == objectID {
+		if len(active.Raw) == 0 {
+			return catalog.Catalog{}, model.CatalogUnavailable("active command catalog has no raw bytes for verification", nil)
+		}
+		contentHash := active.ContentHash
+		if contentHash == "" {
+			// Older in-memory catalog values may not have ContentHash populated, so
+			// derive it once from the raw bytes before verifying the object ID.
+			contentHash = catalog.ContentHashOfBytes(active.Raw)
+		}
+		if catalog.ObjectIDFromContentHash(contentHash) != objectID {
+			return catalog.Catalog{}, model.CatalogUnavailable("command catalog object id does not match catalog bytes", nil)
+		}
 		return active, nil
 	}
-	file, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
-	_ = file
+	_, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
 	if err != nil {
 		return catalog.Catalog{}, err
 	}
 	defer rc.Close()
-	raw, err := io.ReadAll(rc)
+	raw, err := readAllCapped(rc, maxPinnedCatalogBytes)
 	if err != nil {
+		if coreErr, ok := model.IsCoreError(err); ok && coreErr.ErrorCode == "payload_too_large" {
+			return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog exceeds read limit", nil)
+		}
 		return catalog.Catalog{}, err
+	}
+	contentHash := catalog.ContentHashOfBytes(raw)
+	if catalog.ObjectIDFromContentHash(contentHash) != objectID {
+		return catalog.Catalog{}, model.CatalogUnavailable("command catalog object id does not match catalog bytes", nil)
 	}
 	var parsed catalog.Catalog
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return catalog.Catalog{}, err
+		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog is not valid JSON", nil)
 	}
 	parsed.Raw = raw
 	if err := catalog.Validate(parsed); err != nil {
+		if _, ok := model.IsCoreError(err); ok {
+			return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog failed validation", nil)
+		}
 		return catalog.Catalog{}, err
 	}
+	parsed.ObjectID = objectID
+	parsed.ContentHash = contentHash
 	parsed.ByType = map[string]catalog.Command{}
 	for _, command := range parsed.Commands {
 		parsed.ByType[command.Type] = command
 	}
-	parsed.ObjectID = objectID
 	return parsed, nil
 }
 
@@ -603,22 +650,38 @@ func validateObservationJSON(ctx context.Context, stores store.Stores, sightings
 	return nil
 }
 
-func validateTaskCommand(jsonMap model.JSONMap, cat catalog.Catalog, asset model.Entity, allowCommandEdit bool) error {
-	components, ok := jsonMap["components"].(map[string]any)
-	if !ok {
-		return model.ValidationError(model.FieldError{Field: "json.components", Code: "required", Message: "components are required"})
+func validateTaskCommand(jsonMap model.JSONMap, cat catalog.Catalog, asset model.Entity) error {
+	commandType, err := validateTaskCommandCatalog(jsonMap, cat)
+	if err != nil {
+		return err
 	}
-	commandSection, ok := components["command"].(map[string]any)
+	return validateTaskCommandSupport(commandType, asset)
+}
+
+func validateTaskCommandCatalog(jsonMap model.JSONMap, cat catalog.Catalog) (string, error) {
+	componentsValue, ok := jsonMap["components"]
 	if !ok {
-		return model.ValidationError(model.FieldError{Field: "json.components.command", Code: "required", Message: "command is required"})
+		return "", model.ValidationError(model.FieldError{Field: "json.components", Code: "required", Message: "components are required"})
+	}
+	components, ok := componentsValue.(map[string]any)
+	if !ok {
+		return "", model.ValidationError(model.FieldError{Field: "json.components", Code: "invalid_type", Message: "components must be an object"})
+	}
+	commandValue, ok := components["command"]
+	if !ok {
+		return "", model.ValidationError(model.FieldError{Field: "json.components.command", Code: "required", Message: "command is required"})
+	}
+	commandSection, ok := commandValue.(map[string]any)
+	if !ok {
+		return "", model.ValidationError(model.FieldError{Field: "json.components.command", Code: "invalid_type", Message: "command must be an object"})
 	}
 	commandType, _ := commandSection["type"].(string)
 	if commandType == "" {
-		return model.ValidationError(model.FieldError{Field: "json.components.command.type", Code: "required", Message: "command.type is required"})
+		return "", model.ValidationError(model.FieldError{Field: "json.components.command.type", Code: "required", Message: "command.type is required"})
 	}
 	commandDef, ok := cat.ByType[commandType]
 	if !ok {
-		return model.CommandValidationError("command type is not defined in the catalog", model.FieldError{Field: "json.components.command.type", Code: "invalid_value", Message: "unknown command type"})
+		return "", model.CommandValidationError("command type is not defined in the catalog", model.FieldError{Field: "json.components.command.type", Code: "invalid_value", Message: "unknown command type"})
 	}
 	parameters, ok := components["parameters"]
 	if !ok {
@@ -626,10 +689,14 @@ func validateTaskCommand(jsonMap model.JSONMap, cat catalog.Catalog, asset model
 	}
 	if err := catalog.ValidateParameters(commandDef, parameters); err != nil {
 		if coreErr, ok := model.IsCoreError(err); ok {
-			return model.CommandValidationError("command parameters failed validation", flattenFieldErrors(coreErr)...)
+			return "", model.CommandValidationError("command parameters failed validation", flattenFieldErrors(coreErr)...)
 		}
-		return err
+		return "", err
 	}
+	return commandType, nil
+}
+
+func validateTaskCommandSupport(commandType string, asset model.Entity) error {
 	assetComponents, _ := asset.JSON["components"].(map[string]any)
 	supported, ok := assetComponents["supported_commands"].(map[string]any)
 	if !ok {
@@ -639,7 +706,6 @@ func validateTaskCommand(jsonMap model.JSONMap, cat catalog.Catalog, asset model
 	if !ok || !model.ContainsString(commands, commandType) {
 		return model.CommandValidationError("asset does not support requested command", model.FieldError{Field: "json.components.command.type", Code: "invalid_value", Message: "asset does not support command"})
 	}
-	_ = allowCommandEdit
 	return nil
 }
 
