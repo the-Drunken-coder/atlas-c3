@@ -679,6 +679,9 @@ parts:
 		}
 		_, _ = io.Copy(io.Discard, part)
 		_ = part.Close()
+		cleanupStage()
+		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field"}))
+		return
 	}
 
 	ct := contentType

@@ -371,11 +371,28 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	var detectedType string
 	var err error
 	if input.PreStagedPath != "" {
+		limit := chooseLimit(input.MaxBytes, s.maxUpload)
 		if input.PreStagedSizeBytes < 0 {
-			return model.ObjectFile{}, fmt.Errorf("invalid pre-staged upload")
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
+		}
+		info, err := os.Stat(input.PreStagedPath)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+		if !info.Mode().IsRegular() {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+		}
+		if info.Size() != input.PreStagedSizeBytes {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size does not match file"})
+		}
+		if info.Size() == 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
+		}
+		if info.Size() > limit {
+			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
 		}
 		stagedPath = input.PreStagedPath
-		size = input.PreStagedSizeBytes
+		size = info.Size()
 		detectedType = input.PreStagedContentType
 	} else {
 		stagedPath, size, detectedType, err = s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))

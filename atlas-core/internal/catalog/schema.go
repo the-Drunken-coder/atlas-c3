@@ -24,6 +24,19 @@ func asJSONObject(v any) (map[string]any, bool) {
 	}
 }
 
+func asJSONNumber(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	default:
+		return 0, false
+	}
+}
+
 func isJSONIntegerKeyword(v any) bool {
 	switch x := v.(type) {
 	case int:
@@ -64,8 +77,16 @@ func appendSchemaKeywordValueErrors(schema map[string]any, path string, fields *
 		}
 	}
 	if v, ok := schema["enum"]; ok {
-		arr, ok := v.([]any)
-		if !ok || len(arr) == 0 {
+		switch arr := v.(type) {
+		case []any:
+			if len(arr) == 0 {
+				*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_value", Message: "enum must be a non-empty array"})
+			}
+		case []string:
+			if len(arr) == 0 {
+				*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_value", Message: "enum must be a non-empty array"})
+			}
+		default:
 			*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_value", Message: "enum must be a non-empty array"})
 		}
 	}
@@ -223,13 +244,9 @@ func ValidateValue(schema map[string]any, value any, path string) error {
 			return model.ValidationError(model.FieldError{Field: path, Code: "invalid_value", Message: "value is not in enum"})
 		}
 	case "number", "integer":
-		actual, ok := value.(float64)
+		actual, ok := asJSONNumber(value)
 		if !ok {
-			intValue, ok := value.(int)
-			if !ok {
-				return model.ValidationError(model.FieldError{Field: path, Code: "invalid_type", Message: "must be numeric"})
-			}
-			actual = float64(intValue)
+			return model.ValidationError(model.FieldError{Field: path, Code: "invalid_type", Message: "must be numeric"})
 		}
 		if schemaType == "integer" && actual != float64(int64(actual)) {
 			return model.ValidationError(model.FieldError{Field: path, Code: "invalid_type", Message: "must be an integer"})
@@ -284,6 +301,11 @@ func numberToInt(value any) (int, bool) {
 		return 0, false
 	case int:
 		return v, true
+	case int64:
+		if v > int64(math.MaxInt) || v < int64(math.MinInt) {
+			return 0, false
+		}
+		return int(v), true
 	default:
 		return 0, false
 	}
@@ -294,6 +316,8 @@ func numberToFloat(value any) (float64, bool) {
 	case float64:
 		return v, true
 	case int:
+		return float64(v), true
+	case int64:
 		return float64(v), true
 	default:
 		return 0, false

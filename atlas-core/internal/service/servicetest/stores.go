@@ -182,12 +182,12 @@ func (m *MemoryStore) DeleteObservation(_ context.Context, id string) error {
 	for objectID, object := range m.Objects {
 		if object.OwnerType == "observation" && object.OwnerID == id {
 			delete(m.Objects, objectID)
-		for key, file := range m.ObjectFiles {
-			if file.ObjectID == objectID {
-				delete(m.ObjectFiles, key)
-				delete(m.FileBytes, key)
+			for key, file := range m.ObjectFiles {
+				if file.ObjectID == objectID {
+					delete(m.ObjectFiles, key)
+					delete(m.FileBytes, key)
+				}
 			}
-		}
 		}
 	}
 	return nil
@@ -346,10 +346,41 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	var bytesValue []byte
 	var err error
 	if input.PreStagedPath != "" {
-		bytesValue, err = os.ReadFile(input.PreStagedPath)
-		_ = os.Remove(input.PreStagedPath)
+		limit := memUploadLimit(input.MaxBytes)
+		if input.PreStagedSizeBytes < 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
+		}
+		f, openErr := os.Open(input.PreStagedPath)
+		if openErr != nil {
+			return model.ObjectFile{}, openErr
+		}
+		defer func() { _ = f.Close() }()
+		st, statErr := f.Stat()
+		if statErr != nil {
+			return model.ObjectFile{}, statErr
+		}
+		if !st.Mode().IsRegular() {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+		}
+		if st.Size() != input.PreStagedSizeBytes {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size does not match file"})
+		}
+		if st.Size() == 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
+		}
+		if st.Size() > limit {
+			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
+		}
+		lr := &io.LimitedReader{R: f, N: st.Size()}
+		bytesValue, err = io.ReadAll(lr)
 		if err != nil {
 			return model.ObjectFile{}, err
+		}
+		if int64(len(bytesValue)) != st.Size() {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged file size changed during read"})
+		}
+		if rmErr := os.Remove(input.PreStagedPath); rmErr != nil {
+			return model.ObjectFile{}, rmErr
 		}
 	} else {
 		limit := memUploadLimit(input.MaxBytes)
@@ -370,7 +401,12 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	file.Path = "objects/" + file.ObjectID + "/" + file.FileID
 	file.SizeBytes = int64(len(bytesValue))
 	if file.ContentType == "" {
-		file.ContentType = "application/octet-stream"
+		if input.PreStagedPath != "" && input.PreStagedContentType != "" {
+			file.ContentType = input.PreStagedContentType
+		}
+		if file.ContentType == "" {
+			file.ContentType = "application/octet-stream"
+		}
 	}
 	now := time.Now().UTC()
 	if file.CreatedAt.IsZero() {

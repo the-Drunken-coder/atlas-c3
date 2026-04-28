@@ -211,11 +211,13 @@ func (s *Store) TruncateBack(logicalPath string, size int64) error {
 }
 
 // Append writes reader to the on-disk file at logicalPath in O_APPEND mode and
-// returns the actual pre-append disk size and the new disk size. Callers MUST
-// use preSize (not any database-recorded size) as the rollback truncate target
-// if a downstream operation fails: database metadata can be stale (a prior
-// commit may have failed and left the file ahead of metadata), so truncating
-// to a stale size would discard committed bytes that existed before this call.
+// returns the actual pre-append disk size and the new disk size. preSize is
+// taken from the open file after acquiring the append lock, so it matches the
+// size other appenders observe for rollback. Callers MUST use preSize (not any
+// database-recorded size) as the rollback truncate target if a downstream
+// operation fails: database metadata can be stale (a prior commit may have
+// failed and left the file ahead of metadata), so truncating to a stale size
+// would discard committed bytes that existed before this call.
 func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (preSize, newSize int64, err error) {
 	target, err := s.AbsolutePath(logicalPath)
 	if err != nil {
@@ -224,23 +226,23 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return 0, 0, err
 	}
-	preStat, err := os.Stat(target)
+	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, 0, err
 	}
-	preSize = preStat.Size()
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return preSize, 0, err
-	}
 	if err := flockAppendLock(file); err != nil {
 		_ = file.Close()
-		return preSize, 0, err
+		return 0, 0, err
 	}
 	defer func() {
 		_ = flockAppendUnlock(file)
 		_ = file.Close()
 	}()
+	preStat, err := file.Stat()
+	if err != nil {
+		return 0, 0, err
+	}
+	preSize = preStat.Size()
 	limiter := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	written, err := io.Copy(file, limiter)
 	if err != nil {
