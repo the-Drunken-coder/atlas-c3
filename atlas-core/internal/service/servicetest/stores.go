@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -12,14 +13,20 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
 
+// ObjectFileKey identifies an object file in MemoryStore (file_id is only unique per object).
+type ObjectFileKey struct {
+	ObjectID string
+	FileID   string
+}
+
 type MemoryStore struct {
 	mu           sync.RWMutex
 	Entities     map[string]model.Entity
 	Observations map[string]model.Observation
 	Tasks        map[string]model.Task
 	Objects      map[string]model.Object
-	ObjectFiles  map[string]model.ObjectFile
-	FileBytes    map[string][]byte
+	ObjectFiles  map[ObjectFileKey]model.ObjectFile
+	FileBytes    map[ObjectFileKey][]byte
 	Ready        model.DependencyStatus
 }
 
@@ -29,8 +36,8 @@ func NewMemoryStore() *MemoryStore {
 		Observations: map[string]model.Observation{},
 		Tasks:        map[string]model.Task{},
 		Objects:      map[string]model.Object{},
-		ObjectFiles:  map[string]model.ObjectFile{},
-		FileBytes:    map[string][]byte{},
+		ObjectFiles:  map[ObjectFileKey]model.ObjectFile{},
+		FileBytes:    map[ObjectFileKey][]byte{},
 		Ready:        model.DependencyStatus{Status: "ready"},
 	}
 }
@@ -143,7 +150,7 @@ func (m *MemoryStore) ListObservations(_ context.Context, filter store.Observati
 		if filter.SourceAssetID != "" && item.SourceAssetID != filter.SourceAssetID {
 			continue
 		}
-		if filter.UpdatedAfter != "" && item.UpdatedAt.Before(updatedAfter) {
+		if filter.UpdatedAfter != "" && !item.UpdatedAt.After(updatedAfter) {
 			continue
 		}
 		items = append(items, item)
@@ -175,12 +182,12 @@ func (m *MemoryStore) DeleteObservation(_ context.Context, id string) error {
 	for objectID, object := range m.Objects {
 		if object.OwnerType == "observation" && object.OwnerID == id {
 			delete(m.Objects, objectID)
-			for fileID, file := range m.ObjectFiles {
-				if file.ObjectID == objectID {
-					delete(m.ObjectFiles, fileID)
-					delete(m.FileBytes, fileID)
-				}
+		for key, file := range m.ObjectFiles {
+			if file.ObjectID == objectID {
+				delete(m.ObjectFiles, key)
+				delete(m.FileBytes, key)
 			}
+		}
 		}
 	}
 	return nil
@@ -318,10 +325,10 @@ func (m *MemoryStore) DeleteObject(_ context.Context, id string) error {
 		return model.NotFound("object", id)
 	}
 	delete(m.Objects, id)
-	for fileID, file := range m.ObjectFiles {
+	for key, file := range m.ObjectFiles {
 		if file.ObjectID == id {
-			delete(m.ObjectFiles, fileID)
-			delete(m.FileBytes, fileID)
+			delete(m.ObjectFiles, key)
+			delete(m.FileBytes, key)
 		}
 	}
 	return nil
@@ -332,15 +339,27 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if _, ok := m.Objects[input.File.ObjectID]; !ok {
 		return model.ObjectFile{}, model.NotFound("object", input.File.ObjectID)
 	}
-	if _, ok := m.ObjectFiles[input.File.FileID]; ok {
+	key := ObjectFileKey{ObjectID: input.File.ObjectID, FileID: input.File.FileID}
+	if _, ok := m.ObjectFiles[key]; ok {
 		return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
 	}
-	limit := memUploadLimit(input.MaxBytes)
-	lr := &io.LimitedReader{R: input.Reader, N: limit + 1}
-	bytesValue, err := io.ReadAll(lr)
-	if err != nil {
-		return model.ObjectFile{}, err
+	var bytesValue []byte
+	var err error
+	if input.PreStagedPath != "" {
+		bytesValue, err = os.ReadFile(input.PreStagedPath)
+		_ = os.Remove(input.PreStagedPath)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+	} else {
+		limit := memUploadLimit(input.MaxBytes)
+		lr := &io.LimitedReader{R: input.Reader, N: limit + 1}
+		bytesValue, err = io.ReadAll(lr)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
 	}
+	limit := memUploadLimit(input.MaxBytes)
 	if int64(len(bytesValue)) == 0 {
 		return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
 	}
@@ -360,14 +379,15 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if file.UpdatedAt.IsZero() {
 		file.UpdatedAt = now
 	}
-	m.ObjectFiles[file.FileID] = file
-	m.FileBytes[file.FileID] = bytesValue
+	m.ObjectFiles[key] = file
+	m.FileBytes[key] = bytesValue
 	return file, nil
 }
 func (m *MemoryStore) GetObjectFile(_ context.Context, objectID, fileID string) (model.ObjectFile, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, model.NotFound("object_file", fileID)
 	}
@@ -376,7 +396,8 @@ func (m *MemoryStore) GetObjectFile(_ context.Context, objectID, fileID string) 
 func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (model.ObjectFile, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, model.NotFound("object_file", fileID)
 	}
@@ -392,30 +413,32 @@ func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID strin
 	if int64(len(bytesValue)) > limit {
 		return model.ObjectFile{}, model.PayloadTooLarge("append exceeds configured limit")
 	}
-	m.FileBytes[fileID] = append(m.FileBytes[fileID], bytesValue...)
-	file.SizeBytes = int64(len(m.FileBytes[fileID]))
+	m.FileBytes[key] = append(m.FileBytes[key], bytesValue...)
+	file.SizeBytes = int64(len(m.FileBytes[key]))
 	file.UpdatedAt = time.Now().UTC()
-	m.ObjectFiles[fileID] = file
+	m.ObjectFiles[key] = file
 	return file, nil
 }
 func (m *MemoryStore) OpenObjectFile(_ context.Context, objectID, fileID string) (model.ObjectFile, io.ReadCloser, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, nil, model.NotFound("object_file", fileID)
 	}
-	return file, io.NopCloser(bytes.NewReader(m.FileBytes[fileID])), nil
+	return file, io.NopCloser(bytes.NewReader(m.FileBytes[key])), nil
 }
 func (m *MemoryStore) DeleteObjectFile(_ context.Context, objectID, fileID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.NotFound("object_file", fileID)
 	}
-	delete(m.ObjectFiles, fileID)
-	delete(m.FileBytes, fileID)
+	delete(m.ObjectFiles, key)
+	delete(m.FileBytes, key)
 	return nil
 }
 func (m *MemoryStore) ListObjectFilesForObject(_ context.Context, objectID string) ([]model.ObjectFile, error) {
@@ -434,7 +457,7 @@ func (m *MemoryStore) StorageStatus(context.Context) model.DependencyStatus { re
 func (m *MemoryStore) GetFullQueryState(_ context.Context) (store.QueryState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return store.QueryState{Entities: values(m.Entities), Observations: values(m.Observations), Tasks: values(m.Tasks), Objects: values(m.Objects), ObjectFiles: values(m.ObjectFiles)}, nil
+	return store.QueryState{Entities: values(m.Entities), Observations: values(m.Observations), Tasks: values(m.Tasks), Objects: values(m.Objects), ObjectFiles: objectFileValues(m.ObjectFiles)}, nil
 }
 
 func paginate[T any](items []T, pagination model.Pagination) []T {
@@ -446,6 +469,14 @@ func paginate[T any](items []T, pagination model.Pagination) []T {
 		end = len(items)
 	}
 	return append([]T(nil), items[pagination.Offset:end]...)
+}
+
+func objectFileValues(input map[ObjectFileKey]model.ObjectFile) []model.ObjectFile {
+	out := make([]model.ObjectFile, 0, len(input))
+	for _, value := range input {
+		out = append(out, value)
+	}
+	return out
 }
 
 func values[T any](input map[string]T) []T {

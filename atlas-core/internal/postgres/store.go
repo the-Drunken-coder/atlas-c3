@@ -366,13 +366,30 @@ func (s *Store) postCommitObjectFilePathsDelete(contextLabel, resourceID string,
 	}
 }
 func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {
-	stagedPath, size, detectedType, err := s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
-	if err != nil {
-		return model.ObjectFile{}, err
+	var stagedPath string
+	var size int64
+	var detectedType string
+	var err error
+	if input.PreStagedPath != "" {
+		if input.PreStagedSizeBytes < 0 {
+			return model.ObjectFile{}, fmt.Errorf("invalid pre-staged upload")
+		}
+		stagedPath = input.PreStagedPath
+		size = input.PreStagedSizeBytes
+		detectedType = input.PreStagedContentType
+	} else {
+		stagedPath, size, detectedType, err = s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
 	}
 	defer os.Remove(stagedPath)
 	file := input.File
-	file.Path = s.files.LogicalPath(file.ObjectID, file.FileID)
+	logical, err := s.files.LogicalPath(file.ObjectID, file.FileID)
+	if err != nil {
+		return model.ObjectFile{}, err
+	}
+	file.Path = logical
 	file.SizeBytes = size
 	if file.ContentType == "" {
 		file.ContentType = detectedType
@@ -529,7 +546,7 @@ func (s *Store) ListObjectFilesForObject(ctx context.Context, objectID string) (
 }
 
 func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return store.QueryState{}, err
 	}
@@ -799,6 +816,9 @@ func mapPGError(err error, resourceType, resourceID string) error {
 }
 
 func chooseLimit(requested, fallback int64) int64 {
+	if fallback < 1 {
+		fallback = 1
+	}
 	if requested > 0 && requested < fallback {
 		return requested
 	}

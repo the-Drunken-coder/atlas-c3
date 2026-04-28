@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ type Dependencies struct {
 	ObjectStore    interface {
 		StorageStatus(context.Context) model.DependencyStatus
 	}
+	// Files stages multipart uploads before commit; required for object file POST.
+	Files *objectfiles.Store
 	Logger     *logging.Logger
 	Readiness  func(context.Context) (model.ReadinessResponse, int)
 	Descriptor func() (model.ServiceDescriptor, error)
@@ -188,7 +191,12 @@ func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	input := service.EntityCreateInput{EntityID: readString(payload, "entity_id"), Type: readString(payload, "type"), Subtype: readString(payload, "subtype"), Alias: readString(payload, "alias"), JSON: readJSONMap(payload["json"])}
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	input := service.EntityCreateInput{EntityID: readString(payload, "entity_id"), Type: readString(payload, "type"), Subtype: readString(payload, "subtype"), Alias: readString(payload, "alias"), JSON: jsonMap}
 	entity, err := r.deps.Services.CreateEntity(req.Context(), input)
 	if err != nil {
 		r.writeError(w, req, err)
@@ -226,7 +234,12 @@ func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 		value := readString(payload, "alias")
 		alias = &value
 	}
-	entity, err := r.deps.Services.PatchEntity(req.Context(), req.PathValue("entity_id"), service.EntityPatchInput{Subtype: subtype, Alias: alias, JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	entity, err := r.deps.Services.PatchEntity(req.Context(), req.PathValue("entity_id"), service.EntityPatchInput{Subtype: subtype, Alias: alias, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -295,7 +308,12 @@ func (r *Router) handleCreateObservation(w http.ResponseWriter, req *http.Reques
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: readString(payload, "observation_id"), SourceAssetID: readString(payload, "source_asset_id"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: readString(payload, "observation_id"), SourceAssetID: readString(payload, "source_asset_id"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -322,7 +340,12 @@ func (r *Router) handlePatchObservation(w http.ResponseWriter, req *http.Request
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.PatchObservation(req.Context(), req.PathValue("observation_id"), service.ObservationPatchInput{JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.PatchObservation(req.Context(), req.PathValue("observation_id"), service.ObservationPatchInput{JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -366,7 +389,12 @@ func (r *Router) handleCreateTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: readString(payload, "task_id"), AssetID: readString(payload, "asset_id"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: readString(payload, "task_id"), AssetID: readString(payload, "asset_id"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -393,7 +421,12 @@ func (r *Router) handlePatchTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.PatchTask(req.Context(), req.PathValue("task_id"), service.TaskPatchInput{JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.PatchTask(req.Context(), req.PathValue("task_id"), service.TaskPatchInput{JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -419,7 +452,12 @@ func (r *Router) handleTaskStatus(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: readString(payload, "status"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: readString(payload, "status"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -459,7 +497,12 @@ func (r *Router) handleCreateObject(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: readString(payload, "object_id"), Type: readString(payload, "type"), OwnerType: readString(payload, "owner_type"), OwnerID: readString(payload, "owner_id"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: readString(payload, "object_id"), Type: readString(payload, "type"), OwnerType: readString(payload, "owner_type"), OwnerID: readString(payload, "owner_id"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -491,7 +534,12 @@ func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 		value := readString(payload, "type")
 		objectType = &value
 	}
-	item, err := r.deps.Services.PatchObject(req.Context(), req.PathValue("object_id"), service.ObjectPatchInput{Type: objectType, JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.PatchObject(req.Context(), req.PathValue("object_id"), service.ObjectPatchInput{Type: objectType, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -594,17 +642,24 @@ parts:
 		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file upload is required"}))
 		return
 	}
-	defer filePart.Close()
 	contentType, err := filePartContentType(filePart, contentTypeOverride)
 	if err != nil {
+		_ = filePart.Close()
 		r.writeError(w, req, err)
 		return
 	}
-	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: contentType}, Reader: filePart, MaxBytes: maxFile})
+	if r.deps.Files == nil {
+		_ = filePart.Close()
+		r.writeError(w, req, model.InternalError("object file staging is not configured", nil))
+		return
+	}
+	stagedPath, size, detectedType, err := r.deps.Files.Stage(req.Context(), objectID, fileID, filePart, maxFile)
+	_ = filePart.Close()
 	if err != nil {
 		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
 	}
+	cleanupStage := func() { _ = os.Remove(stagedPath) }
 
 	for {
 		part, err := mr.NextPart()
@@ -612,17 +667,36 @@ parts:
 			break
 		}
 		if err != nil {
+			cleanupStage()
 			r.writeError(w, req, r.mapMultipartReadError(err))
 			return
 		}
 		if part.FormName() == "file_id" {
 			_ = part.Close()
-			_ = r.deps.Services.DeleteObjectFile(req.Context(), objectID, fileID)
+			cleanupStage()
 			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
 			return
 		}
 		_, _ = io.Copy(io.Discard, part)
 		_ = part.Close()
+	}
+
+	ct := contentType
+	if ct == "" {
+		ct = detectedType
+	}
+	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{
+		File:                 model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: ct},
+		Reader:               nil,
+		MaxBytes:             maxFile,
+		PreStagedPath:        stagedPath,
+		PreStagedSizeBytes:   size,
+		PreStagedContentType: detectedType,
+	})
+	if err != nil {
+		cleanupStage()
+		r.writeError(w, req, r.mapChunkedReadError(err))
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, item)
@@ -786,14 +860,19 @@ func readString(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return value
 }
-func readJSONMap(value any) model.JSONMap {
-	if value == nil {
-		return model.JSONMap{}
+func readJSONMapField(payload map[string]any, key string) (model.JSONMap, error) {
+	v, ok := payload[key]
+	if !ok || v == nil {
+		return model.JSONMap{}, nil
 	}
-	if out, ok := value.(map[string]any); ok {
-		return out
+	switch x := v.(type) {
+	case map[string]any:
+		return model.JSONMap(x), nil
+	case model.JSONMap:
+		return x, nil
+	default:
+		return model.JSONMap{}, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
 	}
-	return model.JSONMap{}
 }
 
 func rejectUnknownQuery(req *http.Request, allowed ...string) error {

@@ -35,6 +35,9 @@ type App struct {
 }
 
 func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, error) {
+	if logger == nil {
+		logger = logging.New("info", "atlas-core", "local")
+	}
 	cfg, err := config.Load(rootDir)
 	if err != nil {
 		return nil, err
@@ -95,6 +98,7 @@ func Start(ctx context.Context, rootDir string, logger *logging.Logger) (*App, e
 		Events:         hub,
 		CommandCatalog: commandCatalog,
 		ObjectStore:    stores,
+		Files:          files,
 		Logger:         logger,
 		Readiness:      func(ctx context.Context) (model.ReadinessResponse, int) { return atlas.Readiness(ctx) },
 		Descriptor:     atlas.ServiceDescriptor,

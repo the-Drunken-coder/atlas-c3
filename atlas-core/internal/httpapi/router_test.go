@@ -15,6 +15,7 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/events"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/httpapi"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service/servicetest"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/sightingcatalog"
@@ -35,6 +36,10 @@ func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore
 	sightings.Set(sightingcatalog.Catalog{ByKind: map[string]sightingcatalog.Kind{"analysis": {Kind: "analysis", DataSchema: map[string]any{"type": "object", "additionalProperties": true}}}})
 	hub := events.NewHub()
 	svc := service.New(stores, commands, sightings, hub)
+	files, err := objectfiles.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	return stores, httpapi.NewRouter(httpapi.Dependencies{
 		AllowedOrigins: []string{"http://localhost:5173"},
 		StartedAt:      time.Now().UTC(),
@@ -43,6 +48,7 @@ func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore
 		Events:         hub,
 		CommandCatalog: commands,
 		ObjectStore:    stores,
+		Files:          files,
 		Readiness: func(_ context.Context) (model.ReadinessResponse, int) {
 			return model.ReadinessResponse{Status: "ready", Timestamp: time.Now().UTC(), Dependencies: map[string]model.DependencyStatus{"postgres": {Status: "ready"}, "object_storage": {Status: "ready"}, "command_catalog": {Status: "ready"}}}, http.StatusOK
 		},
@@ -223,10 +229,10 @@ func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if _, ok := stores.ObjectFiles["f1"]; ok {
+	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected file to be deleted from store after late file_id rejection")
 	}
-	if _, ok := stores.FileBytes["f1"]; ok {
+	if _, ok := stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected file bytes to be deleted from store after late file_id rejection")
 	}
 }
@@ -266,8 +272,8 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 
 func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) {
 	stores, router := testUploadRouter(t)
-	stores.ObjectFiles["f1"] = model.ObjectFile{FileID: "f1", ObjectID: "obj-1", ContentType: "bad\r\nvalue", SizeBytes: 3}
-	stores.FileBytes["f1"] = []byte("abc")
+	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = model.ObjectFile{FileID: "f1", ObjectID: "obj-1", ContentType: "bad\r\nvalue", SizeBytes: 3}
+	stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = []byte("abc")
 	req := httptest.NewRequest(http.MethodGet, "/objects/obj-1/files/f1/content", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)

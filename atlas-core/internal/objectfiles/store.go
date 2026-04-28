@@ -58,12 +58,41 @@ func (s *Store) Verify() error {
 	if err := os.WriteFile(file, []byte("ok"), 0o644); err != nil {
 		return err
 	}
-	_ = os.Remove(file)
+	if rmErr := os.Remove(file); rmErr != nil {
+		return fmt.Errorf("object storage write-check cleanup: %w", rmErr)
+	}
 	return nil
 }
 
-func (s *Store) LogicalPath(objectID, fileID string) string {
-	return filepath.ToSlash(filepath.Join("objects", objectID, fileID))
+// ValidateObjectFilePathSegments rejects empty IDs and characters that would
+// escape a single directory segment under objects/.
+func ValidateObjectFilePathSegments(objectID, fileID string) error {
+	for _, pair := range []struct {
+		value string
+		field string
+	}{{objectID, "object_id"}, {fileID, "file_id"}} {
+		id := strings.TrimSpace(pair.value)
+		if id == "" {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "required", Message: "value is required"})
+		}
+		if id == "." || id == ".." {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
+		}
+		if strings.ContainsAny(id, `/\`+string(filepath.Separator)) {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "id must not contain path separators"})
+		}
+		if strings.Contains(id, "..") {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
+		}
+	}
+	return nil
+}
+
+func (s *Store) LogicalPath(objectID, fileID string) (string, error) {
+	if err := ValidateObjectFilePathSegments(objectID, fileID); err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(filepath.Join("objects", objectID, fileID)), nil
 }
 
 func (s *Store) AbsolutePath(logicalPath string) (string, error) {
@@ -86,6 +115,9 @@ func (s *Store) AbsolutePath(logicalPath string) (string, error) {
 }
 
 func (s *Store) Stage(ctx context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (stagePath string, size int64, detectedType string, err error) {
+	if err := ValidateObjectFilePathSegments(objectID, fileID); err != nil {
+		return "", 0, "", err
+	}
 	stageDir := filepath.Join(s.root, "staging", objectID)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		return "", 0, "", err
@@ -201,21 +233,26 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 	if err != nil {
 		return preSize, 0, err
 	}
+	if err := flockAppendLock(file); err != nil {
+		_ = file.Close()
+		return preSize, 0, err
+	}
+	defer func() {
+		_ = flockAppendUnlock(file)
+		_ = file.Close()
+	}()
 	limiter := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	written, err := io.Copy(file, limiter)
 	if err != nil {
-		_ = file.Close()
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
 			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
 		return preSize, 0, err
 	}
 	if written == 0 {
-		_ = file.Close()
 		return preSize, 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
 	}
 	if written > maxBytes {
-		_ = file.Close()
 		payloadErr := model.PayloadTooLarge("append exceeds configured limit")
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
 			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", payloadErr, tr)
@@ -223,19 +260,13 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 		return preSize, 0, payloadErr
 	}
 	if err := file.Sync(); err != nil {
-		_ = file.Close()
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
 			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
 		return preSize, 0, err
 	}
-	if err := file.Close(); err != nil {
-		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
-		}
-		return preSize, 0, err
-	}
-	return preSize, preSize + written, nil
+	newSize = preSize + written
+	return preSize, newSize, nil
 }
 
 func SafeUsageHint(value string) string {

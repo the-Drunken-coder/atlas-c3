@@ -74,6 +74,11 @@ type ObjectUploadInput struct {
 	File     model.ObjectFile
 	Reader   io.Reader
 	MaxBytes int64
+	// PreStagedPath, when non-empty, skips Stage and promotes this path (caller
+	// must not delete it; CreateObjectFile removes it after successful Promote).
+	PreStagedPath         string
+	PreStagedSizeBytes    int64
+	PreStagedContentType  string
 }
 
 type ObjectStore interface {

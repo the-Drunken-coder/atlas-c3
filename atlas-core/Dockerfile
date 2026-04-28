@@ -1,11 +1,14 @@
 FROM golang:1.25 AS build
+ARG TARGETARCH=amd64
+ARG TARGETOS=linux
 WORKDIR /workspace
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/atlas-core ./cmd/atlas-core
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/atlas-core ./cmd/atlas-core
 
 FROM alpine:3.21
+LABEL atlas.core.project=atlas-core
 WORKDIR /app
 RUN apk add --no-cache ca-certificates su-exec wget \
  && addgroup -S -g 10001 atlas \

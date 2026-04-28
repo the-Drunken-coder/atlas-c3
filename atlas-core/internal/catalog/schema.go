@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"unicode/utf8"
 
@@ -10,6 +11,64 @@ import (
 
 var supportedSchemaKeywords = map[string]struct{}{
 	"type": {}, "properties": {}, "required": {}, "additionalProperties": {}, "items": {}, "enum": {}, "minimum": {}, "maximum": {}, "minLength": {}, "maxLength": {}, "pattern": {}, "minItems": {}, "maxItems": {},
+}
+
+func asJSONObject(v any) (map[string]any, bool) {
+	switch m := v.(type) {
+	case map[string]any:
+		return m, true
+	case model.JSONMap:
+		return map[string]any(m), true
+	default:
+		return nil, false
+	}
+}
+
+func isJSONIntegerKeyword(v any) bool {
+	switch x := v.(type) {
+	case int:
+		return true
+	case int64:
+		return true
+	case float64:
+		return x == math.Trunc(x) && x >= -1e15 && x <= 1e15
+	default:
+		return false
+	}
+}
+
+func isJSONNumberKeyword(v any) bool {
+	switch v.(type) {
+	case int, int64, float64:
+		return true
+	default:
+		return false
+	}
+}
+
+func appendSchemaKeywordValueErrors(schema map[string]any, path string, fields *[]model.FieldError) {
+	if v, ok := schema["minimum"]; ok && !isJSONNumberKeyword(v) {
+		*fields = append(*fields, model.FieldError{Field: path + ".minimum", Code: "invalid_type", Message: "minimum must be a number"})
+	}
+	if v, ok := schema["maximum"]; ok && !isJSONNumberKeyword(v) {
+		*fields = append(*fields, model.FieldError{Field: path + ".maximum", Code: "invalid_type", Message: "maximum must be a number"})
+	}
+	for _, key := range []string{"minItems", "maxItems", "minLength", "maxLength"} {
+		if v, ok := schema[key]; ok && !isJSONIntegerKeyword(v) {
+			*fields = append(*fields, model.FieldError{Field: path + "." + key, Code: "invalid_type", Message: key + " must be an integer"})
+		}
+	}
+	if v, ok := schema["additionalProperties"]; ok {
+		if _, ok := v.(bool); !ok {
+			*fields = append(*fields, model.FieldError{Field: path + ".additionalProperties", Code: "invalid_type", Message: "additionalProperties must be a boolean"})
+		}
+	}
+	if v, ok := schema["enum"]; ok {
+		arr, ok := v.([]any)
+		if !ok || len(arr) == 0 {
+			*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_value", Message: "enum must be a non-empty array"})
+		}
+	}
 }
 
 func ValidateSchema(schema map[string]any, path string) error {
@@ -45,9 +104,9 @@ func ValidateSchema(schema map[string]any, path string) error {
 	}
 	switch schemaType {
 	case "object":
-		if properties, ok := schema["properties"].(map[string]any); ok {
+		if properties, ok := asJSONObject(schema["properties"]); ok {
 			for name, raw := range properties {
-				nested, ok := raw.(map[string]any)
+				nested, ok := asJSONObject(raw)
 				if !ok {
 					fields = append(fields, model.FieldError{Field: path + ".properties." + name, Code: "invalid_type", Message: "property schema must be an object"})
 					continue
@@ -66,7 +125,7 @@ func ValidateSchema(schema map[string]any, path string) error {
 		}
 	case "array":
 		if rawItems, ok := schema["items"]; ok {
-			nested, ok := rawItems.(map[string]any)
+			nested, ok := asJSONObject(rawItems)
 			if !ok {
 				fields = append(fields, model.FieldError{Field: path + ".items", Code: "invalid_type", Message: "items must be an object"})
 			} else if err := ValidateSchema(nested, path+".items"); err != nil {
@@ -81,6 +140,7 @@ func ValidateSchema(schema map[string]any, path string) error {
 	default:
 		fields = append(fields, model.FieldError{Field: path + ".type", Code: "invalid_value", Message: "unsupported schema type"})
 	}
+	appendSchemaKeywordValueErrors(schema, path, &fields)
 	if len(fields) > 0 {
 		return model.ValidationError(fields...)
 	}
@@ -91,7 +151,7 @@ func ValidateValue(schema map[string]any, value any, path string) error {
 	schemaType, _ := schema["type"].(string)
 	switch schemaType {
 	case "object":
-		obj, ok := value.(map[string]any)
+		obj, ok := asJSONObject(value)
 		if !ok {
 			return model.ValidationError(model.FieldError{Field: path, Code: "invalid_type", Message: "must be an object"})
 		}
@@ -101,7 +161,7 @@ func ValidateValue(schema map[string]any, value any, path string) error {
 				return model.ValidationError(model.FieldError{Field: path + "." + field, Code: "required", Message: "field is required"})
 			}
 		}
-		properties, _ := schema["properties"].(map[string]any)
+		properties, _ := asJSONObject(schema["properties"])
 		additional, hasAdditional := schema["additionalProperties"].(bool)
 		for key, child := range obj {
 			rawSchema, ok := properties[key]
@@ -111,7 +171,7 @@ func ValidateValue(schema map[string]any, value any, path string) error {
 				}
 				continue
 			}
-			nested, ok := rawSchema.(map[string]any)
+			nested, ok := asJSONObject(rawSchema)
 			if !ok {
 				return model.ValidationError(model.FieldError{Field: path + "." + key, Code: "invalid_type", Message: "schema property must be object"})
 			}
@@ -130,7 +190,7 @@ func ValidateValue(schema map[string]any, value any, path string) error {
 		if maxItems, ok := numberToInt(schema["maxItems"]); ok && len(items) > maxItems {
 			return model.ValidationError(model.FieldError{Field: path, Code: "out_of_range", Message: fmt.Sprintf("must contain at most %d items", maxItems)})
 		}
-		nested, _ := schema["items"].(map[string]any)
+		nested, _ := asJSONObject(schema["items"])
 		for index, item := range items {
 			if nested != nil {
 				if err := ValidateValue(nested, item, fmt.Sprintf("%s[%d]", path, index)); err != nil {

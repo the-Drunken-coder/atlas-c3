@@ -262,8 +262,8 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Objects["catalog-big"] = model.Object{ObjectID: "catalog-big", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog"}
 	raw := []byte(strings.Repeat("a", oversizedCatalogByteCount))
-	stores.ObjectFiles["catalog-json"] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
-	stores.FileBytes["catalog-json"] = raw
+	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "catalog-big", FileID: "catalog-json"}] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
+	stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "catalog-big", FileID: "catalog-json"}] = raw
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: "catalog-big", JSON: model.JSONMap{"components": map[string]any{
 		"command":    map[string]any{"type": "move_to_location"},
 		"parameters": map[string]any{"latitude": 1.0},

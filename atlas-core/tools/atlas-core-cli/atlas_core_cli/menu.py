@@ -4,6 +4,9 @@ Used when the user invokes the CLI without an explicit ``action`` argument.
 """
 
 
+import sys
+
+
 def choose_action() -> str:
     """Prompt the user to pick one of ``start``, ``restart``, or ``shutdown``.
 
@@ -22,8 +25,8 @@ def choose_action() -> str:
         try:
             selection = input("Enter selection [1-3]: ").strip()
         except EOFError:
-            print()
-            return "shutdown"
+            print("\nEOF: no action selected.", file=sys.stderr)
+            raise SystemExit(2) from None
         if selection in {"1", "2", "3"}:
             return actions[int(selection) - 1]
         print("Invalid selection.")

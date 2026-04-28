@@ -495,6 +495,13 @@ func (s *Services) loadPinnedCatalog(ctx context.Context, objectID string) (cata
 		}
 		return active, nil
 	}
+	meta, err := s.stores.GetObjectFile(ctx, objectID, "catalog-json")
+	if err != nil {
+		return catalog.Catalog{}, err
+	}
+	if meta.SizeBytes <= 0 {
+		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog has invalid size metadata", nil)
+	}
 	_, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
 	if err != nil {
 		return catalog.Catalog{}, err
@@ -506,6 +513,9 @@ func (s *Services) loadPinnedCatalog(ctx context.Context, objectID string) (cata
 			return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog exceeds read limit", nil)
 		}
 		return catalog.Catalog{}, err
+	}
+	if int64(len(raw)) != meta.SizeBytes {
+		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog byte length does not match object metadata", nil)
 	}
 	contentHash := catalog.ContentHashOfBytes(raw)
 	if catalog.ObjectIDFromContentHash(contentHash) != objectID {
@@ -713,6 +723,9 @@ func validateTaskCommandSupport(commandType string, asset model.Entity) error {
 func validateObjectInput(ctx context.Context, stores store.Stores, objectID, objectType, ownerType, ownerID string, jsonMap model.JSONMap) error {
 	if err := requireValidID("object_id", objectID); err != nil {
 		return err
+	}
+	if strings.TrimSpace(objectType) == "" {
+		return model.ValidationError(model.FieldError{Field: "type", Code: "required", Message: "type is required"})
 	}
 	if ownerType == "" || ownerID == "" {
 		return model.ValidationError(model.FieldError{Field: "owner", Code: "required", Message: "owner_type and owner_id are required"})

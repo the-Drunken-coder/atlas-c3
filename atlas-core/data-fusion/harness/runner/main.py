@@ -11,6 +11,7 @@ requests are bounded by :data:`REQUEST_TIMEOUT_SECONDS` so a stalled core
 cannot hang the harness indefinitely.
 """
 
+import http.client
 import json
 import os
 import time
@@ -110,7 +111,7 @@ def main() -> None:
             created = ensure_track()
             message = "baseline stack created track" if created else "baseline stack verified track"
             print(json.dumps({"service": "atlas-data-fusion", "event": "fusion.tick", "message": message}))
-        except Exception as exc:
+        except (urllib.error.URLError, http.client.HTTPException, OSError, json.JSONDecodeError) as exc:
             print(json.dumps({"service": "atlas-data-fusion", "event": "fusion.error", "message": str(exc)}))
         time.sleep(10)
 

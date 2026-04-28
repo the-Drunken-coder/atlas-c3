@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const schemaSQL = `
-CREATE TABLE IF NOT EXISTS entities (
+// schemaStatements is DDL applied in order on startup (one Exec per statement).
+var schemaStatements = []string{
+	`CREATE TABLE IF NOT EXISTS entities (
   entity_id text PRIMARY KEY CHECK (length(entity_id) BETWEEN 1 AND 50),
   type text NOT NULL CHECK (type IN ('asset', 'track', 'geofeature')),
   subtype text,
@@ -15,21 +17,19 @@ CREATE TABLE IF NOT EXISTS entities (
   json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS entities_type_idx ON entities(type);
-CREATE INDEX IF NOT EXISTS entities_updated_at_idx ON entities(updated_at DESC, entity_id ASC);
-
-CREATE TABLE IF NOT EXISTS observations (
+)`,
+	`CREATE INDEX IF NOT EXISTS entities_type_idx ON entities(type)`,
+	`CREATE INDEX IF NOT EXISTS entities_updated_at_idx ON entities(updated_at DESC, entity_id ASC)`,
+	`CREATE TABLE IF NOT EXISTS observations (
   observation_id text PRIMARY KEY CHECK (length(observation_id) BETWEEN 1 AND 50),
   source_asset_id text NOT NULL REFERENCES entities(entity_id),
   json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS observations_source_asset_idx ON observations(source_asset_id);
-CREATE INDEX IF NOT EXISTS observations_updated_at_idx ON observations(updated_at DESC, observation_id ASC);
-
-CREATE TABLE IF NOT EXISTS objects (
+)`,
+	`CREATE INDEX IF NOT EXISTS observations_source_asset_idx ON observations(source_asset_id)`,
+	`CREATE INDEX IF NOT EXISTS observations_updated_at_idx ON observations(updated_at DESC, observation_id ASC)`,
+	`CREATE TABLE IF NOT EXISTS objects (
   object_id text PRIMARY KEY CHECK (length(object_id) BETWEEN 1 AND 50),
   type text NOT NULL,
   owner_type text NOT NULL CHECK (owner_type IN ('entity', 'observation', 'task', 'system')),
@@ -37,12 +37,11 @@ CREATE TABLE IF NOT EXISTS objects (
   json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS objects_owner_idx ON objects(owner_type, owner_id);
-CREATE INDEX IF NOT EXISTS objects_type_idx ON objects(type);
-CREATE INDEX IF NOT EXISTS objects_updated_at_idx ON objects(updated_at DESC, object_id ASC);
-
-CREATE TABLE IF NOT EXISTS tasks (
+)`,
+	`CREATE INDEX IF NOT EXISTS objects_owner_idx ON objects(owner_type, owner_id)`,
+	`CREATE INDEX IF NOT EXISTS objects_type_idx ON objects(type)`,
+	`CREATE INDEX IF NOT EXISTS objects_updated_at_idx ON objects(updated_at DESC, object_id ASC)`,
+	`CREATE TABLE IF NOT EXISTS tasks (
   task_id text PRIMARY KEY CHECK (length(task_id) BETWEEN 1 AND 50),
   status text NOT NULL CHECK (status IN ('pending', 'acknowledged', 'completed', 'failed')),
   asset_id text NOT NULL REFERENCES entities(entity_id),
@@ -50,13 +49,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS tasks_asset_idx ON tasks(asset_id);
-CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
-CREATE INDEX IF NOT EXISTS tasks_asset_status_updated_idx ON tasks(asset_id, status, updated_at DESC, task_id ASC);
-CREATE INDEX IF NOT EXISTS tasks_updated_at_idx ON tasks(updated_at DESC, task_id ASC);
-
-CREATE TABLE IF NOT EXISTS object_files (
+)`,
+	`CREATE INDEX IF NOT EXISTS tasks_asset_idx ON tasks(asset_id)`,
+	`CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status)`,
+	`CREATE INDEX IF NOT EXISTS tasks_asset_status_updated_idx ON tasks(asset_id, status, updated_at DESC, task_id ASC)`,
+	`CREATE INDEX IF NOT EXISTS tasks_updated_at_idx ON tasks(updated_at DESC, task_id ASC)`,
+	`CREATE TABLE IF NOT EXISTS object_files (
   file_id text PRIMARY KEY CHECK (length(file_id) BETWEEN 1 AND 50),
   object_id text NOT NULL REFERENCES objects(object_id) ON DELETE CASCADE,
   path text NOT NULL UNIQUE,
@@ -65,12 +63,16 @@ CREATE TABLE IF NOT EXISTS object_files (
   usage_hint text,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS object_files_object_idx ON object_files(object_id);
-CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, file_id ASC);
-`
+)`,
+	`CREATE INDEX IF NOT EXISTS object_files_object_idx ON object_files(object_id)`,
+	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, file_id ASC)`,
+}
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, schemaSQL)
-	return err
+	for i, stmt := range schemaStatements {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema statement %d: %w", i, err)
+		}
+	}
+	return nil
 }

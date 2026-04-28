@@ -50,3 +50,24 @@ func TestValidateSchemaNonStringTypeDoesNotAddTypeRequired(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateSchemaRejectsObjectAdditionalProperties(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}, "schema")
+	if err == nil {
+		t.Fatal("expected additionalProperties object form to be rejected")
+	}
+}
+
+func TestValidateSchemaRejectsNonNumericMinimum(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "number", "minimum": "nope"}, "schema")
+	if err == nil {
+		t.Fatal("expected minimum type error")
+	}
+}
+
+func TestValidateSchemaRejectsEmptyEnum(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "string", "enum": []any{}}, "schema")
+	if err == nil {
+		t.Fatal("expected empty enum error")
+	}
+}

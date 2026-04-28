@@ -63,7 +63,7 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
     Args:
         timeout_seconds: Total wall-clock budget for the readiness probe.
     """
-    url = f"http://localhost:{os.environ.get('ATLAS_CORE_PORT', '8080')}/readiness"
+    url = f"http://localhost:{os.environ.get('ATLAS_CORE_HOST_PORT', '8080')}/readiness"
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         attempt_timeout = max(1.0, deadline - time.time())
