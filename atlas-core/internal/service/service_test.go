@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -261,7 +262,19 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	svc, stores, _ := setupServices(t)
 	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Objects["catalog-big"] = model.Object{ObjectID: "catalog-big", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog"}
-	raw := []byte(strings.Repeat("a", oversizedCatalogByteCount))
+	const prefix = `{"p":"`
+	const suffix = `"}`
+	padLen := oversizedCatalogByteCount - len(prefix) - len(suffix)
+	if padLen < 0 {
+		t.Fatalf("fixture overhead exceeds oversizedCatalogByteCount")
+	}
+	raw := []byte(prefix + strings.Repeat("a", padLen) + suffix)
+	if len(raw) != oversizedCatalogByteCount {
+		t.Fatalf("len(raw)=%d want %d", len(raw), oversizedCatalogByteCount)
+	}
+	if !json.Valid(raw) {
+		t.Fatal("expected valid JSON fixture")
+	}
 	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "catalog-big", FileID: "catalog-json"}] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
 	stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "catalog-big", FileID: "catalog-json"}] = raw
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: "catalog-big", JSON: model.JSONMap{"components": map[string]any{

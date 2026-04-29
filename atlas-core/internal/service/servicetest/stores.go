@@ -16,10 +16,10 @@ import (
 )
 
 // ObjectFileKey identifies an object file in MemoryStore. file_id is only
-// unique per object, so the map key is composite. Global path uniqueness
-// (which the Postgres schema enforces via UNIQUE on object_files.path) is
-// checked separately in CreateObjectFile so the test store and Postgres
-// agree on conflict semantics.
+// unique per object, so the map key is composite. Postgres enforces the same
+// identity via PRIMARY KEY (object_id, file_id) and global path uniqueness
+// via UNIQUE on object_files.path; the in-memory store checks path conflicts
+// separately so test and production semantics stay aligned.
 type ObjectFileKey struct {
 	ObjectID string
 	FileID   string
@@ -381,33 +381,36 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 		if input.PreStagedSizeBytes < 0 {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
 		}
+		info, lerr := os.Lstat(input.PreStagedPath)
+		if lerr != nil {
+			return model.ObjectFile{}, lerr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
+		}
+		if !info.Mode().IsRegular() {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+		}
 		f, openErr := os.Open(input.PreStagedPath)
 		if openErr != nil {
 			return model.ObjectFile{}, openErr
 		}
 		defer func() { _ = f.Close() }()
-		st, statErr := f.Stat()
-		if statErr != nil {
-			return model.ObjectFile{}, statErr
-		}
-		if !st.Mode().IsRegular() {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
-		}
-		if st.Size() != input.PreStagedSizeBytes {
+		if info.Size() != input.PreStagedSizeBytes {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size does not match file"})
 		}
-		if st.Size() == 0 {
+		if info.Size() == 0 {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
 		}
-		if st.Size() > limit {
+		if info.Size() > limit {
 			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
 		}
-		lr := &io.LimitedReader{R: f, N: st.Size()}
+		lr := &io.LimitedReader{R: f, N: info.Size()}
 		bytesValue, err = io.ReadAll(lr)
 		if err != nil {
 			return model.ObjectFile{}, err
 		}
-		if int64(len(bytesValue)) != st.Size() {
+		if int64(len(bytesValue)) != info.Size() {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged file size changed during read"})
 		}
 		// Cleanup of the pre-staged file is handled by the deferred removal at

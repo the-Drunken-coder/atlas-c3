@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -191,7 +192,7 @@ func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -234,7 +235,7 @@ func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 		value := readString(payload, "alias")
 		alias = &value
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -308,7 +309,7 @@ func (r *Router) handleCreateObservation(w http.ResponseWriter, req *http.Reques
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -340,7 +341,7 @@ func (r *Router) handlePatchObservation(w http.ResponseWriter, req *http.Request
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -389,7 +390,7 @@ func (r *Router) handleCreateTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -421,7 +422,7 @@ func (r *Router) handlePatchTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -452,7 +453,7 @@ func (r *Router) handleTaskStatus(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -497,7 +498,7 @@ func (r *Router) handleCreateObject(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -534,7 +535,7 @@ func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 		value := readString(payload, "type")
 		objectType = &value
 	}
-	jsonMap, jerr := readJSONMapField(payload, "json")
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
 	if jerr != nil {
 		r.writeError(w, req, jerr)
 		return
@@ -698,7 +699,9 @@ parts:
 		PreStagedContentType: detectedType,
 	})
 	if err != nil {
-		cleanupStage()
+		if !uploadErrorRetainsPreStagedPath(err, stagedPath) {
+			cleanupStage()
+		}
 		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
 	}
@@ -864,7 +867,30 @@ func readString(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return value
 }
-func readJSONMapField(payload map[string]any, key string) (model.JSONMap, error) {
+
+// uploadErrorRetainsPreStagedPath is true when the store left PreStagedPath on
+// disk for operator recovery after a post-commit promotion failure; the HTTP
+// layer must not delete that path (see store.ObjectUploadInput).
+func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
+	if stagedPath == "" {
+		return false
+	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "storage_unavailable" || ce.Details == nil {
+		return false
+	}
+	sp, _ := ce.Details["staged_path"].(string)
+	return sp != "" && sp == stagedPath
+}
+
+func readJSONMapField(raw map[string]json.RawMessage, payload map[string]any, key string) (model.JSONMap, error) {
+	rm, inRaw := raw[key]
+	if !inRaw {
+		return model.JSONMap{}, nil
+	}
+	if string(bytes.TrimSpace(rm)) == "null" {
+		return model.JSONMap{}, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
+	}
 	v, ok := payload[key]
 	if !ok || v == nil {
 		return model.JSONMap{}, nil

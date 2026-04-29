@@ -9,7 +9,7 @@ cp .env.example .env
 python3 tools/atlas-core-cli/main.py start --yes
 ```
 
-From the host, the API is at `http://localhost:${ATLAS_CORE_HOST_PORT:-8080}` (see `.env.example`). Inside Docker Compose the `atlas-core` service always listens on **8080**; `ATLAS_CORE_HOST_PORT` only changes the published host port. PostgreSQL defaults to `localhost:${ATLAS_CORE_POSTGRES_PORT:-5432}`; `POSTGRES_PASSWORD` is **required** (no default in `docker-compose.yml`).
+From the host, the API is at `http://localhost:${ATLAS_CORE_HOST_PORT:-8080}` (see `.env.example`). Inside Docker Compose the `atlas-core` service always listens on **8080**; `ATLAS_CORE_HOST_PORT` only changes the published host port. PostgreSQL defaults to `localhost:${ATLAS_CORE_POSTGRES_PORT:-5432}`. For Compose, set **`ATLAS_CORE_DATABASE_URL`** (with a URL-encoded password if needed) and **`POSTGRES_PASSWORD`** in `.env`; both are required (see `docker-compose.yml`).
 
 ## Test
 

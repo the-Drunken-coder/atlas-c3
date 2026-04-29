@@ -24,19 +24,6 @@ func asJSONObject(v any) (map[string]any, bool) {
 	}
 }
 
-func asJSONNumber(value any) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, true
-	case int:
-		return float64(v), true
-	case int64:
-		return float64(v), true
-	default:
-		return 0, false
-	}
-}
-
 // asJSONNumberAndInt returns the float64 and int64 representations of a numeric
 // JSON value. isInt is true only when the value can be represented losslessly
 // as int64 — int/int64 always set isInt; float64 sets isInt only when it has

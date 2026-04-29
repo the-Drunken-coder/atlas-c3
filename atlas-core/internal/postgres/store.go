@@ -369,15 +369,25 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	var stagedPath string
 	var size int64
 	var detectedType string
-	var err error
+	removeStaged := true
+	defer func() {
+		if removeStaged && stagedPath != "" {
+			_ = os.Remove(stagedPath)
+		}
+	}()
+
 	if input.PreStagedPath != "" {
 		limit := chooseLimit(input.MaxBytes, s.maxUpload)
 		if input.PreStagedSizeBytes < 0 {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
 		}
-		info, err := os.Stat(input.PreStagedPath)
+		stagedPath = input.PreStagedPath
+		info, err := os.Lstat(stagedPath)
 		if err != nil {
 			return model.ObjectFile{}, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
 		}
 		if !info.Mode().IsRegular() {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
@@ -391,10 +401,10 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 		if info.Size() > limit {
 			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
 		}
-		stagedPath = input.PreStagedPath
 		size = info.Size()
 		detectedType = input.PreStagedContentType
 	} else {
+		var err error
 		stagedPath, size, detectedType, err = s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
 		if err != nil {
 			return model.ObjectFile{}, err
@@ -405,12 +415,6 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	//      os.Remove would race against the destination; and
 	//  (2) Promote failure after the metadata commit — we keep the staged
 	//      bytes for forensics / manual recovery (see StorageUnavailable below).
-	removeStaged := true
-	defer func() {
-		if removeStaged {
-			_ = os.Remove(stagedPath)
-		}
-	}()
 	file := input.File
 	logical, err := s.files.LogicalPath(file.ObjectID, file.FileID)
 	if err != nil {

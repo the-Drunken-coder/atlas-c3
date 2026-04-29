@@ -55,24 +55,33 @@ var schemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS tasks_asset_status_updated_idx ON tasks(asset_id, status, updated_at DESC, task_id ASC)`,
 	`CREATE INDEX IF NOT EXISTS tasks_updated_at_idx ON tasks(updated_at DESC, task_id ASC)`,
 	`CREATE TABLE IF NOT EXISTS object_files (
-  file_id text PRIMARY KEY CHECK (length(file_id) BETWEEN 1 AND 50),
+  file_id text NOT NULL CHECK (length(file_id) BETWEEN 1 AND 50),
   object_id text NOT NULL REFERENCES objects(object_id) ON DELETE CASCADE,
   path text NOT NULL UNIQUE,
   content_type text NOT NULL,
   size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
   usage_hint text,
   created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (object_id, file_id)
 )`,
 	`CREATE INDEX IF NOT EXISTS object_files_object_idx ON object_files(object_id)`,
 	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, file_id ASC)`,
 }
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	for i, stmt := range schemaStatements {
-		if _, err := pool.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("schema statement %d: %w", i, err)
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema statement %d: %w", i+1, err)
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema commit: %w", err)
 	}
 	return nil
 }

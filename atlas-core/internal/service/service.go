@@ -495,18 +495,14 @@ func (s *Services) loadPinnedCatalog(ctx context.Context, objectID string) (cata
 		}
 		return active, nil
 	}
-	meta, err := s.stores.GetObjectFile(ctx, objectID, "catalog-json")
-	if err != nil {
-		return catalog.Catalog{}, err
-	}
-	if meta.SizeBytes <= 0 {
-		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog has invalid size metadata", nil)
-	}
-	_, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
+	meta, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
 	if err != nil {
 		return catalog.Catalog{}, err
 	}
 	defer rc.Close()
+	if meta.SizeBytes <= 0 {
+		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog has invalid size metadata", nil)
+	}
 	raw, err := readAllCapped(rc, maxPinnedCatalogBytes)
 	if err != nil {
 		if coreErr, ok := model.IsCoreError(err); ok && coreErr.ErrorCode == "payload_too_large" {
