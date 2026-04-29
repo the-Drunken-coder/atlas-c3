@@ -720,7 +720,8 @@ func validateObjectInput(ctx context.Context, stores store.Stores, objectID, obj
 	if err := requireValidID("object_id", objectID); err != nil {
 		return err
 	}
-	if strings.TrimSpace(objectType) == "" {
+	objectType = strings.TrimSpace(objectType)
+	if objectType == "" {
 		return model.ValidationError(model.FieldError{Field: "type", Code: "required", Message: "type is required"})
 	}
 	if ownerType == "" || ownerID == "" {

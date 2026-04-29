@@ -545,6 +545,12 @@ func objectFileValues(input map[ObjectFileKey]model.ObjectFile) []model.ObjectFi
 	for _, value := range input {
 		out = append(out, value)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ObjectID != out[j].ObjectID {
+			return out[i].ObjectID < out[j].ObjectID
+		}
+		return out[i].FileID < out[j].FileID
+	})
 	return out
 }
 

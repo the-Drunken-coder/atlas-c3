@@ -33,6 +33,10 @@ func New(root string) (*Store, error) {
 	return &Store{root: root, healthy: true}, nil
 }
 
+func (s *Store) StagingDir() string {
+	return filepath.Join(s.root, "staging")
+}
+
 func (s *Store) Status() model.DependencyStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -78,11 +82,8 @@ func ValidateObjectFilePathSegments(objectID, fileID string) error {
 		if id == "." || id == ".." {
 			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
 		}
-		if strings.ContainsAny(id, `/\`+string(filepath.Separator)) {
+		if strings.ContainsAny(id, `/\`) {
 			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "id must not contain path separators"})
-		}
-		if strings.Contains(id, "..") {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
 		}
 	}
 	return nil
@@ -231,7 +232,9 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 		return 0, 0, err
 	}
 	if err := flockAppendLock(file); err != nil {
-		_ = file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return 0, 0, fmt.Errorf("%w; close: %v", err, closeErr)
+		}
 		return 0, 0, err
 	}
 	defer func() {

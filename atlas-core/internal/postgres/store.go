@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -377,6 +378,18 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	}()
 
 	if input.PreStagedPath != "" {
+		stagingDir := s.files.StagingDir()
+		absPath, absErr := filepath.Abs(input.PreStagedPath)
+		if absErr != nil {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+		}
+		absStaging, stagingAbsErr := filepath.Abs(stagingDir)
+		if stagingAbsErr != nil {
+			return model.ObjectFile{}, fmt.Errorf("staging directory: %w", stagingAbsErr)
+		}
+		if !strings.HasPrefix(absPath, absStaging+string(filepath.Separator)) && absPath != absStaging {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+		}
 		limit := chooseLimit(input.MaxBytes, s.maxUpload)
 		if input.PreStagedSizeBytes < 0 {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
@@ -424,6 +437,9 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	file.SizeBytes = size
 	if file.ContentType == "" {
 		file.ContentType = detectedType
+		if file.ContentType == "" {
+			file.ContentType = "application/octet-stream"
+		}
 	}
 	now := time.Now().UTC()
 	file.CreatedAt = now
@@ -621,7 +637,7 @@ func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error)
 			return state, err
 		}
 	}
-	if rows, err := tx.Query(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files ORDER BY updated_at DESC, file_id ASC`); err != nil {
+	if rows, err := tx.Query(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files ORDER BY updated_at DESC, object_id ASC, file_id ASC`); err != nil {
 		return state, err
 	} else {
 		state.ObjectFiles, err = collectObjectFiles(rows)
@@ -855,18 +871,23 @@ func mapPGError(err error, resourceType, resourceID string) error {
 // defaultUploadLimitBytes matches servicetest.memUploadLimit when no per-request cap is set.
 const defaultUploadLimitBytes = 16 * 1024 * 1024
 
+const minUploadLimitBytes = 1024
+
 func chooseLimit(requested, fallback int64) int64 {
 	if fallback < 1 {
 		fallback = defaultUploadLimitBytes
 	}
 	if requested > 0 && requested < fallback {
-		return requested
-	}
-	if requested > 0 {
-		return fallback
+		lim := requested
+		if lim < minUploadLimitBytes {
+			lim = minUploadLimitBytes
+		}
+		if lim > fallback {
+			return fallback
+		}
+		return lim
 	}
 	return fallback
 }
 
 func itoa(v int) string { return fmt.Sprintf("%d", v) }
-

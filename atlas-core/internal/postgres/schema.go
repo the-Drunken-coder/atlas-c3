@@ -65,9 +65,19 @@ var schemaStatements = []string{
   updated_at timestamptz NOT NULL
 )`,
 	`ALTER TABLE object_files DROP CONSTRAINT IF EXISTS object_files_pkey`,
-	`ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id)`,
+	`DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'object_files_pkey' AND conrelid = 'object_files'::regclass) THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'object_files_pkey' AND conrelid = 'object_files'::regclass AND conkey = (SELECT array_agg(attnum) FROM pg_attribute WHERE attrelid = 'object_files'::regclass AND attname IN ('object_id', 'file_id'))) THEN
+      ALTER TABLE object_files DROP CONSTRAINT object_files_pkey;
+      ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id);
+    END IF;
+  ELSE
+    ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id);
+  END IF;
+END $$`,
 	`CREATE INDEX IF NOT EXISTS object_files_object_idx ON object_files(object_id)`,
-	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, file_id ASC)`,
+	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, object_id ASC, file_id ASC)`,
 }
 
 func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
@@ -78,7 +88,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	for i, stmt := range schemaStatements {
 		if _, err := tx.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("schema statement %d: %w", i+1, err)
+			return fmt.Errorf("schema statement %d of %d: %w", i+1, len(schemaStatements), err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

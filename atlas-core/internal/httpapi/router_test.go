@@ -7,6 +7,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -64,9 +66,64 @@ func testRouter(t *testing.T) http.Handler {
 	return router
 }
 
-func testUploadRouter(t *testing.T) (*servicetest.MemoryStore, http.Handler) {
+func testUploadRouter(t *testing.T) (*servicetest.MemoryStore, http.Handler, *objectfiles.Store) {
 	t.Helper()
-	return newTestRouter(t, 50)
+	cat, err := servicetest.NewDefaultCommandCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stores := servicetest.NewMemoryStore()
+	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": []any{"move_to_location"}}}}}
+	stores.Objects["obj-1"] = model.Object{ObjectID: "obj-1", Type: "f", OwnerType: "entity", OwnerID: "e", JSON: model.JSONMap{}}
+	commands := &catalog.Active{}
+	commands.Set(cat)
+	sightings := &sightingcatalog.Active{}
+	sightings.Set(sightingcatalog.Catalog{ByKind: map[string]sightingcatalog.Kind{"analysis": {Kind: "analysis", DataSchema: map[string]any{"type": "object", "additionalProperties": true}}}})
+	hub := events.NewHub()
+	svc := service.New(stores, commands, sightings, hub)
+	files, err := objectfiles.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := httpapi.NewRouter(httpapi.Dependencies{
+		AllowedOrigins: []string{"http://localhost:5173"},
+		StartedAt:      time.Now().UTC(),
+		MaxUploadBytes: 50,
+		Services:       svc,
+		Events:         hub,
+		CommandCatalog: commands,
+		ObjectStore:    stores,
+		Files:          files,
+		Readiness: func(_ context.Context) (model.ReadinessResponse, int) {
+			return model.ReadinessResponse{Status: "ready", Timestamp: time.Now().UTC(), Dependencies: map[string]model.DependencyStatus{"postgres": {Status: "ready"}, "object_storage": {Status: "ready"}, "command_catalog": {Status: "ready"}}}, http.StatusOK
+		},
+		Descriptor: func() (model.ServiceDescriptor, error) {
+			return model.ServiceDescriptor{Service: model.ServiceName, Status: "ok", Version: "test", StartedAt: time.Now().UTC(), ActiveCommandCatalogObjectID: cat.ObjectID, Links: map[string]string{"health": "/health"}}, nil
+		},
+	})
+	return stores, router, files
+}
+
+func assertCleanStagingDir(t *testing.T, files *objectfiles.Store) {
+	t.Helper()
+	root := files.StagingDir()
+	var leftover []string
+	ferr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && path != root {
+			rel, _ := filepath.Rel(root, path)
+			leftover = append(leftover, rel)
+		}
+		return nil
+	})
+	if ferr != nil {
+		t.Fatalf("failed to walk staging dir: %v", ferr)
+	}
+	if len(leftover) > 0 {
+		t.Fatalf("staging directory not clean, found files: %v", leftover)
+	}
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -105,7 +162,7 @@ func TestCreateTaskPublishesCreatedResource(t *testing.T) {
 }
 
 func TestObjectFileUploadOversizeReturns413(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	pw, err := mw.CreateFormFile("file", "x.dat")
@@ -128,7 +185,7 @@ func TestObjectFileUploadOversizeReturns413(t *testing.T) {
 }
 
 func TestObjectFileUploadMalformedMultipartReturns400(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", strings.NewReader(""))
 	req.Header.Set("Content-Type", "multipart/form-data")
 	rr := httptest.NewRecorder()
@@ -139,7 +196,7 @@ func TestObjectFileUploadMalformedMultipartReturns400(t *testing.T) {
 }
 
 func TestObjectFileUploadTruncatedMultipartReturns400(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	body := "--testboundary\r\n" +
 		"Content-Disposition: form-data; name=\"file\"; filename=\"x.dat\"\r\n" +
 		"Content-Type: application/octet-stream\r\n\r\nabc"
@@ -153,7 +210,7 @@ func TestObjectFileUploadTruncatedMultipartReturns400(t *testing.T) {
 }
 
 func TestObjectFileUploadRejectsInvalidContentTypeOverride(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	if err := mw.WriteField("content_type", "text/plain\r\nX-Test: injected"); err != nil {
@@ -179,7 +236,7 @@ func TestObjectFileUploadRejectsInvalidContentTypeOverride(t *testing.T) {
 }
 
 func TestObjectFileUploadRejectsLegacyFileIDFormField(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	if err := mw.WriteField("file_id", "f1"); err != nil {
@@ -205,7 +262,7 @@ func TestObjectFileUploadRejectsLegacyFileIDFormField(t *testing.T) {
 }
 
 func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
-	stores, router := testUploadRouter(t)
+	stores, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	pw, err := mw.CreateFormFile("file", "x.dat")
@@ -238,7 +295,7 @@ func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
 }
 
 func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	if err := mw.WriteField("content_type", "text/plain; charset=utf-8"); err != nil {
@@ -271,7 +328,7 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 }
 
 func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) {
-	stores, router := testUploadRouter(t)
+	stores, router, _ := testUploadRouter(t)
 	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = model.ObjectFile{FileID: "f1", ObjectID: "obj-1", ContentType: "bad\r\nvalue", SizeBytes: 3}
 	stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = []byte("abc")
 	req := httptest.NewRequest(http.MethodGet, "/objects/obj-1/files/f1/content", nil)
@@ -291,7 +348,7 @@ func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) 
 // extra part) — this test pins the behaviour so the simplified implementation
 // can't regress.
 func TestObjectFileUploadRejectsMultipleTrailingParts(t *testing.T) {
-	stores, router := testUploadRouter(t)
+	stores, router, files := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	pw, err := mw.CreateFormFile("file", "x.dat")
@@ -320,13 +377,14 @@ func TestObjectFileUploadRejectsMultipleTrailingParts(t *testing.T) {
 	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected staged file to be removed when extra parts are present")
 	}
+	assertCleanStagingDir(t, files)
 }
 
 // Issue #9: io.Copy errors while draining an extra trailing part are now
 // surfaced via mapMultipartReadError — a truncated trailing part still yields
 // a 400 with no persisted file.
 func TestObjectFileUploadTruncatedTrailingPartReturns400(t *testing.T) {
-	stores, router := testUploadRouter(t)
+	stores, router, files := testUploadRouter(t)
 	// Construct a body where the trailing extra part is truncated mid-data.
 	body := "--testboundary\r\n" +
 		"Content-Disposition: form-data; name=\"file\"; filename=\"x.dat\"\r\n" +
@@ -343,4 +401,5 @@ func TestObjectFileUploadTruncatedTrailingPartReturns400(t *testing.T) {
 	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected no object file to be persisted when trailing part is truncated")
 	}
+	assertCleanStagingDir(t, files)
 }

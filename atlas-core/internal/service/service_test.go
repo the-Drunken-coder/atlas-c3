@@ -262,13 +262,13 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	svc, stores, _ := setupServices(t)
 	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Objects["catalog-big"] = model.Object{ObjectID: "catalog-big", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog"}
-	const prefix = `{"p":"`
-	const suffix = `"}`
-	padLen := oversizedCatalogByteCount - len(prefix) - len(suffix)
+	const prefix = `{"catalog_id":"oversized","version":"1","commands":[{"type":"`
+	const infix = `","display_name":"x","description":"x","parameters_schema":{"type":"object"}}]}`
+	const padLen = oversizedCatalogByteCount - len(prefix) - len(infix)
 	if padLen < 0 {
 		t.Fatalf("fixture overhead exceeds oversizedCatalogByteCount")
 	}
-	raw := []byte(prefix + strings.Repeat("a", padLen) + suffix)
+	raw := []byte(prefix + strings.Repeat("a", padLen) + infix)
 	if len(raw) != oversizedCatalogByteCount {
 		t.Fatalf("len(raw)=%d want %d", len(raw), oversizedCatalogByteCount)
 	}

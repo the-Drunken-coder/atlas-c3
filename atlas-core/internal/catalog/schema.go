@@ -151,6 +151,12 @@ func appendSchemaKeywordValueErrors(schema map[string]any, path string, fields *
 			if len(arr) == 0 {
 				*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_value", Message: "enum must be a non-empty array"})
 			}
+			for _, member := range arr {
+				if _, ok := member.(string); !ok {
+					*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_type", Message: "enum values must be strings"})
+					break
+				}
+			}
 		case []string:
 			if len(arr) == 0 {
 				*fields = append(*fields, model.FieldError{Field: path + ".enum", Code: "invalid_value", Message: "enum must be a non-empty array"})
@@ -213,17 +219,22 @@ func ValidateSchema(schema map[string]any, path string) error {
 	}
 	switch schemaType {
 	case "object":
-		if properties, ok := asJSONObject(schema["properties"]); ok {
-			for name, raw := range properties {
-				nested, ok := asJSONObject(raw)
-				if !ok {
-					fields = append(fields, model.FieldError{Field: path + ".properties." + name, Code: "invalid_type", Message: "property schema must be an object"})
-					continue
-				}
-				if err := ValidateSchema(nested, path+".properties."+name); err != nil {
-					if coreErr, ok := model.IsCoreError(err); ok {
-						if rawFields, ok := coreErr.Details["fields"].([]model.FieldError); ok {
-							fields = append(fields, rawFields...)
+		if pRaw, hasP := schema["properties"]; hasP {
+			properties, ok := asJSONObject(pRaw)
+			if !ok {
+				fields = append(fields, model.FieldError{Field: path + ".properties", Code: "invalid_type", Message: "properties must be an object"})
+			} else {
+				for name, raw := range properties {
+					nested, ok := asJSONObject(raw)
+					if !ok {
+						fields = append(fields, model.FieldError{Field: path + ".properties." + name, Code: "invalid_type", Message: "property schema must be an object"})
+						continue
+					}
+					if err := ValidateSchema(nested, path+".properties."+name); err != nil {
+						if coreErr, ok := model.IsCoreError(err); ok {
+							if rawFields, ok := coreErr.Details["fields"].([]model.FieldError); ok {
+								fields = append(fields, rawFields...)
+							}
 						}
 					}
 				}
@@ -388,22 +399,11 @@ func toStringSlice(value any) ([]string, bool) {
 }
 
 func numberToInt(value any) (int, bool) {
-	switch v := value.(type) {
-	case float64:
-		if v == float64(int(v)) {
-			return int(v), true
-		}
-		return 0, false
-	case int:
-		return v, true
-	case int64:
-		if v > int64(math.MaxInt) || v < int64(math.MinInt) {
-			return 0, false
-		}
-		return int(v), true
-	default:
+	i64, ok := numberToInt64(value)
+	if !ok || i64 > int64(math.MaxInt) || i64 < int64(math.MinInt) {
 		return 0, false
 	}
+	return int(i64), true
 }
 
 func numberToFloat(value any) (float64, bool) {

@@ -883,6 +883,16 @@ func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
 	return sp != "" && sp == stagedPath
 }
 
+// readJSONMapField extracts a JSON object field from a decoded request body.
+// It distinguishes three cases:
+//   - Key omitted entirely → returns (nil, nil). Callers should treat nil as
+//     "field not provided" (e.g., don't update on PATCH).
+//   - Key present with value null → returns a validation error (null is not an
+//     object).
+//   - Key present with value {} or a non-empty object → returns the JSONMap.
+//
+// The nil-vs-empty distinction is significant for PATCH semantics: nil means
+// "skip update", while an empty JSONMap means "set to empty object".
 func readJSONMapField(raw map[string]json.RawMessage, payload map[string]any, key string) (model.JSONMap, error) {
 	rm, inRaw := raw[key]
 	if !inRaw {

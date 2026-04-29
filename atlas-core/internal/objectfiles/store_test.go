@@ -116,6 +116,12 @@ func TestLogicalPathRejectsUnsafeIDs(t *testing.T) {
 	if _, err := s.LogicalPath("a", "../x"); err == nil {
 		t.Fatal("expected error for file_id with traversal")
 	}
+	if _, err := s.LogicalPath("a\\b", "f"); err == nil {
+		t.Fatal("expected error for object_id with backslash separator")
+	}
+	if _, err := s.LogicalPath("a", "f\\g"); err == nil {
+		t.Fatal("expected error for file_id with backslash separator")
+	}
 }
 
 func TestAppendIOCopyErrorTruncates(t *testing.T) {
