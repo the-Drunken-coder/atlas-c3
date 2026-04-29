@@ -62,9 +62,10 @@ var schemaStatements = []string{
   size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
   usage_hint text,
   created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (object_id, file_id)
+  updated_at timestamptz NOT NULL
 )`,
+	`ALTER TABLE object_files DROP CONSTRAINT IF EXISTS object_files_pkey`,
+	`ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id)`,
 	`CREATE INDEX IF NOT EXISTS object_files_object_idx ON object_files(object_id)`,
 	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, file_id ASC)`,
 }

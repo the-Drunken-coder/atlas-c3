@@ -886,14 +886,14 @@ func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
 func readJSONMapField(raw map[string]json.RawMessage, payload map[string]any, key string) (model.JSONMap, error) {
 	rm, inRaw := raw[key]
 	if !inRaw {
-		return model.JSONMap{}, nil
+		return nil, nil
 	}
 	if string(bytes.TrimSpace(rm)) == "null" {
 		return model.JSONMap{}, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
 	}
 	v, ok := payload[key]
 	if !ok || v == nil {
-		return model.JSONMap{}, nil
+		return nil, nil
 	}
 	switch x := v.(type) {
 	case map[string]any:

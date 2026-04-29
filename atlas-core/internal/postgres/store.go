@@ -852,9 +852,12 @@ func mapPGError(err error, resourceType, resourceID string) error {
 	return err
 }
 
+// defaultUploadLimitBytes matches servicetest.memUploadLimit when no per-request cap is set.
+const defaultUploadLimitBytes = 16 * 1024 * 1024
+
 func chooseLimit(requested, fallback int64) int64 {
 	if fallback < 1 {
-		fallback = 1
+		fallback = defaultUploadLimitBytes
 	}
 	if requested > 0 && requested < fallback {
 		return requested

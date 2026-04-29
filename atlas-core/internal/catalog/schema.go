@@ -105,7 +105,7 @@ func isJSONIntegerKeyword(v any) bool {
 	case int64:
 		return true
 	case float64:
-		return x == math.Trunc(x) && x >= -1e15 && x <= 1e15
+		return x == math.Trunc(x) && x >= -float64(1<<53) && x <= float64(1<<53)
 	default:
 		return false
 	}

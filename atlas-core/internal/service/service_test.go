@@ -289,4 +289,7 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	if !ok || ce.ErrorCode != "catalog_unavailable" {
 		t.Fatalf("expected catalog_unavailable, got %v", err)
 	}
+	if !strings.Contains(ce.Message, "exceeds read limit") {
+		t.Fatalf("expected catalog_unavailable due to size limit, got message: %s", ce.Message)
+	}
 }

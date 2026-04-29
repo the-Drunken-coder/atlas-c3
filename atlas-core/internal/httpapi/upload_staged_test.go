@@ -40,13 +40,13 @@ func TestUploadErrorRetainsPreStagedPath(t *testing.T) {
 }
 
 func TestReadJSONMapFieldExplicitNullVsAbsent(t *testing.T) {
-	t.Run("absent key is empty map", func(t *testing.T) {
+	t.Run("absent key returns nil", func(t *testing.T) {
 		m, err := readJSONMapField(map[string]json.RawMessage{}, map[string]any{}, "json")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(m) != 0 {
-			t.Fatalf("want empty, got %v", m)
+		if m != nil {
+			t.Fatalf("want nil, got %v", m)
 		}
 	})
 	t.Run("explicit null is validation error", func(t *testing.T) {
@@ -55,6 +55,20 @@ func TestReadJSONMapFieldExplicitNullVsAbsent(t *testing.T) {
 		_, err := readJSONMapField(raw, payload, "json")
 		if err == nil {
 			t.Fatal("expected validation error")
+		}
+	})
+	t.Run("explicit empty object returns empty map", func(t *testing.T) {
+		raw := map[string]json.RawMessage{"json": json.RawMessage(`{}`)}
+		payload := map[string]any{"json": map[string]any{}}
+		m, err := readJSONMapField(raw, payload, "json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m == nil {
+			t.Fatal("want non-nil empty map, got nil")
+		}
+		if len(m) != 0 {
+			t.Fatalf("want empty map, got %v", m)
 		}
 	})
 }

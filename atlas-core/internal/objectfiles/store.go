@@ -236,7 +236,9 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 	}
 	defer func() {
 		_ = flockAppendUnlock(file)
-		_ = file.Close()
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 	}()
 	preStat, err := file.Stat()
 	if err != nil {

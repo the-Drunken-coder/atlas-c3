@@ -405,7 +405,7 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 		if info.Size() > limit {
 			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
 		}
-		lr := &io.LimitedReader{R: f, N: info.Size()}
+		lr := &io.LimitedReader{R: f, N: info.Size() + 1}
 		bytesValue, err = io.ReadAll(lr)
 		if err != nil {
 			return model.ObjectFile{}, err
