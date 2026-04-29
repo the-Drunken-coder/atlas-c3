@@ -284,3 +284,63 @@ func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) 
 		t.Fatalf("unexpected content type header: %q", got)
 	}
 }
+
+// Issue #8: a multipart payload with TWO parts after the file part is rejected
+// and no object file ends up persisted. The previous loop-based implementation
+// happened to behave the same way for this case (it returned after the first
+// extra part) — this test pins the behaviour so the simplified implementation
+// can't regress.
+func TestObjectFileUploadRejectsMultipleTrailingParts(t *testing.T) {
+	stores, router := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("trailing_one", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("trailing_two", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
+		t.Fatal("expected staged file to be removed when extra parts are present")
+	}
+}
+
+// Issue #9: io.Copy errors while draining an extra trailing part are now
+// surfaced via mapMultipartReadError — a truncated trailing part still yields
+// a 400 with no persisted file.
+func TestObjectFileUploadTruncatedTrailingPartReturns400(t *testing.T) {
+	stores, router := testUploadRouter(t)
+	// Construct a body where the trailing extra part is truncated mid-data.
+	body := "--testboundary\r\n" +
+		"Content-Disposition: form-data; name=\"file\"; filename=\"x.dat\"\r\n" +
+		"Content-Type: application/octet-stream\r\n\r\nabc\r\n" +
+		"--testboundary\r\n" +
+		"Content-Disposition: form-data; name=\"extra\"\r\n\r\npartial-without-terminator"
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=testboundary")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
+		t.Fatal("expected no object file to be persisted when trailing part is truncated")
+	}
+}

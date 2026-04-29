@@ -400,7 +400,17 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 			return model.ObjectFile{}, err
 		}
 	}
-	defer os.Remove(stagedPath)
+	// Default-clean-up the staged path. Two paths intentionally suppress this:
+	//  (1) Promote success — the rename consumed the file, so a follow-up
+	//      os.Remove would race against the destination; and
+	//  (2) Promote failure after the metadata commit — we keep the staged
+	//      bytes for forensics / manual recovery (see StorageUnavailable below).
+	removeStaged := true
+	defer func() {
+		if removeStaged {
+			_ = os.Remove(stagedPath)
+		}
+	}()
 	file := input.File
 	logical, err := s.files.LogicalPath(file.ObjectID, file.FileID)
 	if err != nil {
@@ -432,9 +442,15 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 		return model.ObjectFile{}, err
 	}
 	if err := s.files.Promote(stagedPath, file.Path); err != nil {
+		removeStaged = false
 		s.files.MarkMismatch("object file metadata committed but byte promotion failed")
-		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{"object_id": file.ObjectID, "file_id": file.FileID})
+		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{
+			"object_id":   file.ObjectID,
+			"file_id":     file.FileID,
+			"staged_path": stagedPath,
+		})
 	}
+	removeStaged = false
 	return file, nil
 }
 

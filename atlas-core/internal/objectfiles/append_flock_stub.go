@@ -2,10 +2,15 @@
 
 package objectfiles
 
-import "os"
+import (
+	"errors"
+	"os"
+)
 
-// Windows and other platforms: advisory flock is not applied; single-process
-// correctness still holds; document if multi-writer on shared volumes matters.
-func flockAppendLock(f *os.File) error { return nil }
+// On unsupported platforms (Windows, plan9, etc.) advisory file locking is not
+// available; both functions return errFlockUnsupported so callers fail fast
+// rather than silently losing multi-writer correctness.
+var errFlockUnsupported = errors.New("objectfiles: advisory file locking not supported on this platform; refusing append")
 
-func flockAppendUnlock(f *os.File) error { return nil }
+func flockAppendLock(f *os.File) error   { return errFlockUnsupported }
+func flockAppendUnlock(f *os.File) error { return errFlockUnsupported }

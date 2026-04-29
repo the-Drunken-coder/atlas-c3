@@ -661,26 +661,27 @@ parts:
 	}
 	cleanupStage := func() { _ = os.Remove(stagedPath) }
 
-	for {
-		part, err := mr.NextPart()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			cleanupStage()
-			r.writeError(w, req, r.mapMultipartReadError(err))
-			return
-		}
-		if part.FormName() == "file_id" {
-			_ = part.Close()
-			cleanupStage()
-			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
-			return
-		}
-		_, _ = io.Copy(io.Discard, part)
-		_ = part.Close()
+	// Reject any part following the file part. We only need to peek at one
+	// extra part: if it exists the request is invalid regardless of what it is,
+	// so we drain it (surfacing read errors) and return a precise message.
+	if extra, err := mr.NextPart(); err == nil {
+		name := extra.FormName()
+		_, copyErr := io.Copy(io.Discard, extra)
+		_ = extra.Close()
 		cleanupStage()
-		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field"}))
+		if copyErr != nil {
+			r.writeError(w, req, r.mapMultipartReadError(copyErr))
+			return
+		}
+		msg := "multipart must not contain parts after the file field"
+		if name == "file_id" {
+			msg = "file_id is specified in the URL path; omit the file_id form field"
+		}
+		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: msg}))
+		return
+	} else if !errors.Is(err, io.EOF) {
+		cleanupStage()
+		r.writeError(w, req, r.mapMultipartReadError(err))
 		return
 	}
 

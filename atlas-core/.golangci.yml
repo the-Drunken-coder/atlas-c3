@@ -27,8 +27,8 @@ linters:
       - legacy
       - std-error-handling
     paths:
-      - (^|/)data-fusion/
-      - (^|/)tools/
+      - (^|/)data-fusion(/|$)
+      - (^|/)tools(/|$)
       - (^|/)third_party(/|$)
       - (^|/)builtin(/|$)
       - (^|/)examples(/|$)

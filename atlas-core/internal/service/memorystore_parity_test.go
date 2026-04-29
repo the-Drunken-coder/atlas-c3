@@ -1,0 +1,153 @@
+package service_test
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service/servicetest"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
+)
+
+// Issue #2: MemoryStore.ListObservations must include rows whose UpdatedAt is
+// exactly equal to the UpdatedAfter cutoff, matching Postgres' `>=` semantics.
+func TestMemoryStoreListObservationsUpdatedAfterIsInclusive(t *testing.T) {
+	ctx := context.Background()
+	mem := servicetest.NewMemoryStore()
+	cutoff := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	obs := model.Observation{
+		ObservationID: "obs-1",
+		SourceAssetID: "asset-1",
+		UpdatedAt:     cutoff,
+		CreatedAt:     cutoff,
+	}
+	mem.Observations[obs.ObservationID] = obs
+
+	_, total, err := mem.ListObservations(ctx, store.ObservationListFilter{
+		UpdatedAfter: cutoff.Format(time.RFC3339Nano),
+	}, model.Pagination{Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected boundary row to be returned (>=), got total=%d", total)
+	}
+}
+
+// Issue #1: two CreateObjectFile calls that would produce the same object_files
+// path must conflict, mirroring the UNIQUE constraint on object_files.path.
+//
+// Two distinct (object_id, file_id) pairs cannot collide via LogicalPath, so
+// instead we plant a duplicate path in the map by hand and verify the second
+// CreateObjectFile rejects it.
+func TestMemoryStoreCreateObjectFileGlobalPathConflict(t *testing.T) {
+	ctx := context.Background()
+	mem := servicetest.NewMemoryStore()
+	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
+	mem.Objects["obj-2"] = model.Object{ObjectID: "obj-2"}
+	// Pre-existing entry: obj-1/file-collision.
+	preKey := servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "file-collision"}
+	mem.ObjectFiles[preKey] = model.ObjectFile{
+		ObjectID: "obj-1", FileID: "file-collision",
+		Path: filepath.ToSlash(filepath.Join("objects", "obj-1", "file-collision")),
+	}
+	// Now manually rewrite that entry's path to clash with the new upload below.
+	clashing := mem.ObjectFiles[preKey]
+	clashing.Path = filepath.ToSlash(filepath.Join("objects", "obj-2", "file-new"))
+	mem.ObjectFiles[preKey] = clashing
+
+	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
+		File:   model.ObjectFile{ObjectID: "obj-2", FileID: "file-new"},
+		Reader: bytes.NewReader([]byte("payload")),
+	})
+	if err == nil {
+		t.Fatal("expected conflict on duplicate path")
+	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "conflict" {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
+	if reason, _ := ce.Details["reason"].(string); reason != "already_exists" {
+		t.Fatalf("expected reason=already_exists, got reason=%q (details=%#v)", reason, ce.Details)
+	}
+}
+
+// Issue #3: invalid path segments must be rejected (e.g., file_id containing
+// "..") — Postgres rejects them via objectfiles.LogicalPath, MemoryStore must
+// agree.
+func TestMemoryStoreCreateObjectFileRejectsInvalidPathSegments(t *testing.T) {
+	ctx := context.Background()
+	mem := servicetest.NewMemoryStore()
+	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
+
+	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
+		File:   model.ObjectFile{ObjectID: "obj-1", FileID: "../escape"},
+		Reader: bytes.NewReader([]byte("payload")),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for ../escape file_id")
+	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "validation_failed" {
+		t.Fatalf("expected validation_failed ValidationError, got %v", err)
+	}
+}
+
+// Issue #5: the ObjectUploadInput contract requires implementations to remove
+// the pre-staged file on both success and error paths. Exercise the error path
+// (size mismatch) and assert the file was deleted.
+func TestMemoryStoreCreateObjectFileRemovesPreStagedOnError(t *testing.T) {
+	ctx := context.Background()
+	mem := servicetest.NewMemoryStore()
+	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
+
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "staged.bin")
+	if err := os.WriteFile(staged, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write staged: %v", err)
+	}
+
+	// Lie about the size — implementation must reject AND remove the path.
+	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
+		File:               model.ObjectFile{ObjectID: "obj-1", FileID: "f1"},
+		PreStagedPath:      staged,
+		PreStagedSizeBytes: 999,
+	})
+	if err == nil {
+		t.Fatal("expected validation error for size mismatch")
+	}
+	if _, statErr := os.Stat(staged); !os.IsNotExist(statErr) {
+		t.Fatalf("expected staged file to be removed on error, stat err=%v", statErr)
+	}
+}
+
+// Issue #5 (success path companion): on a normal create, the pre-staged file
+// is also removed.
+func TestMemoryStoreCreateObjectFileRemovesPreStagedOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	mem := servicetest.NewMemoryStore()
+	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
+
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "staged.bin")
+	payload := []byte("hello-world")
+	if err := os.WriteFile(staged, payload, 0o600); err != nil {
+		t.Fatalf("write staged: %v", err)
+	}
+
+	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
+		File:               model.ObjectFile{ObjectID: "obj-1", FileID: "f1"},
+		PreStagedPath:      staged,
+		PreStagedSizeBytes: int64(len(payload)),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(staged); !os.IsNotExist(statErr) {
+		t.Fatalf("expected staged file to be removed on success, stat err=%v", statErr)
+	}
+}

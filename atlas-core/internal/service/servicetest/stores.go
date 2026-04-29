@@ -5,15 +5,21 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
 
-// ObjectFileKey identifies an object file in MemoryStore (file_id is only unique per object).
+// ObjectFileKey identifies an object file in MemoryStore. file_id is only
+// unique per object, so the map key is composite. Global path uniqueness
+// (which the Postgres schema enforces via UNIQUE on object_files.path) is
+// checked separately in CreateObjectFile so the test store and Postgres
+// agree on conflict semantics.
 type ObjectFileKey struct {
 	ObjectID string
 	FileID   string
@@ -150,7 +156,9 @@ func (m *MemoryStore) ListObservations(_ context.Context, filter store.Observati
 		if filter.SourceAssetID != "" && item.SourceAssetID != filter.SourceAssetID {
 			continue
 		}
-		if filter.UpdatedAfter != "" && !item.UpdatedAt.After(updatedAfter) {
+		// Match Postgres' `updated_at >= $N` (inclusive) — skip only rows
+		// strictly before the cutoff, so equal-timestamp rows are returned.
+		if filter.UpdatedAfter != "" && item.UpdatedAt.Before(updatedAfter) {
 			continue
 		}
 		items = append(items, item)
@@ -334,14 +342,37 @@ func (m *MemoryStore) DeleteObject(_ context.Context, id string) error {
 	return nil
 }
 func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {
+	// Honour the ObjectUploadInput contract: when a PreStagedPath is provided,
+	// implementations must remove it on both success and error paths (the only
+	// exception being a post-commit byte-promotion failure, which the in-memory
+	// store does not have). A defer is the cleanest way to guarantee that.
+	if input.PreStagedPath != "" {
+		defer func() { _ = os.Remove(input.PreStagedPath) }()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.Objects[input.File.ObjectID]; !ok {
 		return model.ObjectFile{}, model.NotFound("object", input.File.ObjectID)
 	}
+	// Validate the path segments before any I/O. Postgres performs this via
+	// objectfiles.Store.LogicalPath; the in-memory store must agree so that
+	// invalid IDs are rejected the same way in both backends.
+	if err := objectfiles.ValidateObjectFilePathSegments(input.File.ObjectID, input.File.FileID); err != nil {
+		return model.ObjectFile{}, err
+	}
+	logicalPath := filepath.ToSlash(filepath.Join("objects", input.File.ObjectID, input.File.FileID))
 	key := ObjectFileKey{ObjectID: input.File.ObjectID, FileID: input.File.FileID}
 	if _, ok := m.ObjectFiles[key]; ok {
 		return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
+	}
+	// Global path uniqueness — mirrors `path text NOT NULL UNIQUE` in the
+	// Postgres schema. Two different (object_id, file_id) pairs can produce
+	// the same path only if a caller bypasses LogicalPath, but checking
+	// defensively here keeps the test store honest.
+	for _, existing := range m.ObjectFiles {
+		if existing.Path == logicalPath {
+			return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
+		}
 	}
 	var bytesValue []byte
 	var err error
@@ -379,9 +410,8 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 		if int64(len(bytesValue)) != st.Size() {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged file size changed during read"})
 		}
-		if rmErr := os.Remove(input.PreStagedPath); rmErr != nil {
-			return model.ObjectFile{}, rmErr
-		}
+		// Cleanup of the pre-staged file is handled by the deferred removal at
+		// the top of CreateObjectFile, which fires on every return path.
 	} else {
 		limit := memUploadLimit(input.MaxBytes)
 		lr := &io.LimitedReader{R: input.Reader, N: limit + 1}
@@ -398,7 +428,7 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 		return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
 	}
 	file := input.File
-	file.Path = "objects/" + file.ObjectID + "/" + file.FileID
+	file.Path = logicalPath
 	file.SizeBytes = int64(len(bytesValue))
 	if file.ContentType == "" {
 		if input.PreStagedPath != "" && input.PreStagedContentType != "" {

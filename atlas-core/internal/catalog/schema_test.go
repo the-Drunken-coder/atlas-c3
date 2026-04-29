@@ -115,3 +115,54 @@ func TestValidateValueAppliesInt64SchemaBounds(t *testing.T) {
 	}
 	assertHasFieldError(t, errBelow, "v", "out_of_range")
 }
+
+// Issue #6: a non-array enum (e.g., a bare string) should report invalid_type,
+// not invalid_value, matching the convention used for minimum/maximum/etc.
+func TestValidateSchemaEnumNonArrayReportsInvalidType(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "string", "enum": "not-an-array"}, "schema")
+	if err == nil {
+		t.Fatal("expected non-array enum to be rejected")
+	}
+	assertHasFieldError(t, err, "schema.enum", "invalid_type")
+}
+
+// Issue #7: int64 values just above 2^53 must be compared in int64. Float64
+// coercion would round the value down to the maximum and silently accept it.
+func TestValidateValueInt64BeyondSafeIntegerRange(t *testing.T) {
+	const maxSafe = int64(1) << 53 // 9_007_199_254_740_992
+	schema := map[string]any{"type": "integer", "maximum": maxSafe}
+	if err := ValidateValue(schema, maxSafe+1, "v"); err == nil {
+		t.Fatal("expected value above maximum (2^53 + 1) to be rejected")
+	} else {
+		assertHasFieldError(t, err, "v", "out_of_range")
+	}
+	if err := ValidateValue(schema, maxSafe, "v"); err != nil {
+		t.Fatalf("expected boundary value (2^53) to be accepted: %v", err)
+	}
+}
+
+// Issue #7: int64 boundaries set as min == max must include only the exact value.
+func TestValidateValueInt64EqualMinMax(t *testing.T) {
+	pinned := int64(1) << 60
+	schema := map[string]any{"type": "integer", "minimum": pinned, "maximum": pinned}
+	if err := ValidateValue(schema, pinned, "v"); err != nil {
+		t.Fatalf("expected pinned int64 value to validate: %v", err)
+	}
+	if err := ValidateValue(schema, pinned-1, "v"); err == nil {
+		t.Fatal("expected pinned-1 to be rejected as below minimum")
+	}
+	if err := ValidateValue(schema, pinned+1, "v"); err == nil {
+		t.Fatal("expected pinned+1 to be rejected as above maximum")
+	}
+}
+
+// Issue #7: float64 schema constraints whose magnitude exceeds the safe-int
+// range silently lose precision and must be rejected at schema-validation
+// time so authors specify them as integers.
+func TestValidateSchemaRejectsLossyFloatConstraint(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "integer", "minimum": 1e20}, "schema")
+	if err == nil {
+		t.Fatal("expected float64 minimum past safe-int range to be rejected")
+	}
+	assertHasFieldError(t, err, "schema.minimum", "invalid_value")
+}
