@@ -885,6 +885,10 @@ func canonicalizeStagedPathForCompare(path string) string {
 	if err != nil {
 		return filepath.Clean(path)
 	}
+	// Prefer resolving the full path when it still exists. If the file has
+	// already been renamed or removed, fall back to resolving the parent
+	// directory and rejoining the basename so symlinked staging directories
+	// still compare equal to the canonical path persisted by the store.
 	resolvedPath, err := filepath.EvalSymlinks(absPath)
 	if err == nil {
 		return filepath.Clean(resolvedPath)
