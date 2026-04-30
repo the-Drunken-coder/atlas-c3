@@ -881,6 +881,8 @@ func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
 	}
 	sp := retainedStagedPath(ce)
 	if ce.Details != nil {
+		// Legacy fallback for older storage_unavailable errors that still carried
+		// the retained path in serialized details instead of the internal cause.
 		if detailPath, _ := ce.Details["staged_path"].(string); detailPath != "" {
 			sp = detailPath
 		}

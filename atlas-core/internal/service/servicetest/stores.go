@@ -564,7 +564,7 @@ func stagingDirForPath(path string) string {
 			return dir
 		}
 	}
-	return filepath.Dir(path)
+	return ""
 }
 
 func values[T any](input map[string]T) []T {
