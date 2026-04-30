@@ -662,11 +662,7 @@ func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request
 					r.writeError(w, req, r.mapMultipartReadError(copyErr))
 					return
 				}
-				msg := "multipart must not contain parts after the file field"
-				if name == "file_id" {
-					msg = "file_id is specified in the URL path; omit the file_id form field"
-				}
-				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: msg}))
+				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field"}))
 				return
 			}
 			_, _ = io.Copy(io.Discard, part)
