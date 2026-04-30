@@ -87,7 +87,10 @@ func assertCleanStagingDir(t *testing.T, files *objectfiles.Store) {
 			return err
 		}
 		if path != root {
-			rel, _ := filepath.Rel(root, path)
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
 			if d.IsDir() {
 				rel += string(filepath.Separator)
 			}
