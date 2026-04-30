@@ -92,7 +92,7 @@ BEGIN
     ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id);
   END IF;
 END $$`,
-	`CREATE INDEX IF NOT EXISTS object_files_object_idx ON object_files(object_id)`,
+	`DROP INDEX IF EXISTS object_files_object_idx`,
 	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, object_id ASC, file_id ASC)`,
 }
 

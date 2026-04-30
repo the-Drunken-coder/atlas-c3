@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
@@ -31,6 +33,23 @@ func TestUploadErrorRetainsPreStagedPath(t *testing.T) {
 			t.Fatal("expected false when staged_path differs")
 		}
 	})
+	t.Run("retained when canonical paths match", func(t *testing.T) {
+		dir := t.TempDir()
+		realDir := filepath.Join(dir, "real")
+		if err := os.Mkdir(realDir, 0o755); err != nil {
+			t.Fatalf("mkdir real: %v", err)
+		}
+		linkDir := filepath.Join(dir, "link")
+		if err := os.Symlink(realDir, linkDir); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		linkedPath := filepath.Join(linkDir, "staged.bin")
+		resolvedPath := filepath.Join(realDir, "staged.bin")
+		err := model.StorageUnavailable("x", map[string]any{"staged_path": resolvedPath})
+		if !uploadErrorRetainsPreStagedPath(err, linkedPath) {
+			t.Fatalf("expected true for %q vs %q", linkedPath, resolvedPath)
+		}
+	})
 	t.Run("empty staged path never retains", func(t *testing.T) {
 		err := model.StorageUnavailable("x", map[string]any{"staged_path": staged})
 		if uploadErrorRetainsPreStagedPath(err, "") {
@@ -55,6 +74,22 @@ func TestReadJSONMapFieldExplicitNullVsAbsent(t *testing.T) {
 		_, err := readJSONMapField(raw, payload, "json")
 		if err == nil {
 			t.Fatal("expected validation error")
+		}
+		ce, ok := model.IsCoreError(err)
+		if !ok || ce.ErrorCode != "validation_failed" {
+			t.Fatalf("expected validation_failed, got %v", err)
+		}
+		rawFields, exists := ce.Details["fields"]
+		if !exists {
+			t.Fatalf("expected fields detail, got %#v", ce.Details)
+		}
+		fields, ok := rawFields.([]model.FieldError)
+		if !ok || len(fields) != 1 {
+			t.Fatalf("expected one field error, got %#v", rawFields)
+		}
+		want := model.FieldError{Field: "json", Code: "invalid_type", Message: "must be a JSON object"}
+		if fields[0] != want {
+			t.Fatalf("unexpected field error: got %#v want %#v", fields[0], want)
 		}
 	})
 	t.Run("explicit empty object returns empty map", func(t *testing.T) {

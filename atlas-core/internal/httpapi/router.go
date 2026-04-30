@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -873,7 +874,30 @@ func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
 		return false
 	}
 	sp, _ := ce.Details["staged_path"].(string)
-	return sp != "" && sp == stagedPath
+	return sp != "" && canonicalizeStagedPathForCompare(sp) == canonicalizeStagedPathForCompare(stagedPath)
+}
+
+func canonicalizeStagedPathForCompare(path string) string {
+	if path == "" {
+		return ""
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	// Prefer resolving the full path when it still exists. If the file has
+	// already been renamed or removed, fall back to resolving the parent
+	// directory and rejoining the basename so symlinked staging directories
+	// still compare equal to the canonical path persisted by the store.
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		return filepath.Clean(resolvedPath)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if err != nil {
+		return filepath.Clean(absPath)
+	}
+	return filepath.Clean(filepath.Join(resolvedParent, filepath.Base(absPath)))
 }
 
 // readJSONMapField extracts a JSON object field from a decoded request body.

@@ -15,7 +15,8 @@ def choose_action() -> str:
     instead of relying on this prompt.
 
     Raises:
-        SystemExit: Exit status 2 when stdin reaches EOF before a selection is made.
+        SystemExit: Exit status 2 when stdin reaches EOF; ``input()`` raises
+            ``EOFError`` and this helper converts it into ``SystemExit``.
 
     Returns:
         The chosen action name.
