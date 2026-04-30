@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
@@ -378,32 +379,17 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	}()
 
 	if input.PreStagedPath != "" {
-		stagingDir := s.files.StagingDir()
-		absPath, absErr := filepath.Abs(input.PreStagedPath)
-		if absErr != nil {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
-		}
-		absStaging, stagingAbsErr := filepath.Abs(stagingDir)
-		if stagingAbsErr != nil {
-			return model.ObjectFile{}, fmt.Errorf("staging directory: %w", stagingAbsErr)
-		}
-		if !strings.HasPrefix(absPath, absStaging+string(filepath.Separator)) && absPath != absStaging {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
-		}
 		limit := chooseLimit(input.MaxBytes, s.maxUpload)
 		if input.PreStagedSizeBytes < 0 {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
 		}
-		stagedPath = input.PreStagedPath
-		info, err := os.Lstat(stagedPath)
+		info, err := os.Lstat(input.PreStagedPath)
 		if err != nil {
 			return model.ObjectFile{}, err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
-		}
-		if !info.Mode().IsRegular() {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+		stagedPath, info, err = validatePreStagedPath(input.PreStagedPath, s.files.StagingDir(), info)
+		if err != nil {
+			return model.ObjectFile{}, err
 		}
 		if info.Size() != input.PreStagedSizeBytes {
 			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size does not match file"})
@@ -435,12 +421,7 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	}
 	file.Path = logical
 	file.SizeBytes = size
-	if file.ContentType == "" {
-		file.ContentType = detectedType
-		if file.ContentType == "" {
-			file.ContentType = "application/octet-stream"
-		}
-	}
+	file.ContentType = chooseStoredContentType(file.ContentType, detectedType)
 	now := time.Now().UTC()
 	file.CreatedAt = now
 	file.UpdatedAt = now
@@ -871,23 +852,70 @@ func mapPGError(err error, resourceType, resourceID string) error {
 // defaultUploadLimitBytes matches servicetest.memUploadLimit when no per-request cap is set.
 const defaultUploadLimitBytes = 16 * 1024 * 1024
 
-const minUploadLimitBytes = 1024
-
 func chooseLimit(requested, fallback int64) int64 {
-	if fallback < 1 {
-		fallback = defaultUploadLimitBytes
-	}
-	if requested > 0 && requested < fallback {
-		lim := requested
-		if lim < minUploadLimitBytes {
-			lim = minUploadLimitBytes
-		}
-		if lim > fallback {
+	if requested > 0 {
+		if fallback > 0 && requested > fallback {
 			return fallback
 		}
-		return lim
+		return requested
 	}
-	return fallback
+	if fallback > 0 {
+		return fallback
+	}
+	return defaultUploadLimitBytes
 }
 
 func itoa(v int) string { return fmt.Sprintf("%d", v) }
+
+func chooseStoredContentType(explicit, detected string) string {
+	if normalized, valid := mediatype.NormalizeContentType(explicit); valid && strings.TrimSpace(explicit) != "" {
+		return normalized
+	}
+	normalized, _ := mediatype.NormalizeContentType(detected)
+	return normalized
+}
+
+func validatePreStagedPath(preStagedPath, stagingDir string, info os.FileInfo) (string, os.FileInfo, error) {
+	absPath, absErr := filepath.Abs(preStagedPath)
+	if absErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	absStaging, stagingAbsErr := filepath.Abs(stagingDir)
+	if stagingAbsErr != nil {
+		return "", nil, fmt.Errorf("staging directory: %w", stagingAbsErr)
+	}
+	resolvedStaging, resolveStagingErr := filepath.EvalSymlinks(absStaging)
+	if resolveStagingErr != nil {
+		return "", nil, fmt.Errorf("staging directory: %w", resolveStagingErr)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+	}
+	resolvedParent, resolveParentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if resolveParentErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	resolvedPath := filepath.Join(resolvedParent, filepath.Base(absPath))
+	withinStaging, relErr := pathWithinDir(resolvedStaging, resolvedPath)
+	if relErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	if !withinStaging {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+	}
+	return resolvedPath, info, nil
+}
+
+func pathWithinDir(dir, path string) (bool, error) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
+}

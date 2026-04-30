@@ -62,17 +62,33 @@ var schemaStatements = []string{
   size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
   usage_hint text,
   created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL
+  updated_at timestamptz NOT NULL,
+  PRIMARY KEY (object_id, file_id)
 )`,
-	`ALTER TABLE object_files DROP CONSTRAINT IF EXISTS object_files_pkey`,
 	`DO $$
+DECLARE
+  existing_pkey_name text;
+  existing_pkey_columns text[];
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'object_files_pkey' AND conrelid = 'object_files'::regclass) THEN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'object_files_pkey' AND conrelid = 'object_files'::regclass AND conkey = (SELECT array_agg(attnum) FROM pg_attribute WHERE attrelid = 'object_files'::regclass AND attname IN ('object_id', 'file_id'))) THEN
-      ALTER TABLE object_files DROP CONSTRAINT object_files_pkey;
-      ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id);
-    END IF;
-  ELSE
+  SELECT con.conname,
+         ARRAY(
+           SELECT att.attname
+           FROM unnest(con.conkey) WITH ORDINALITY AS cols(attnum, ord)
+           JOIN pg_attribute AS att
+             ON att.attrelid = con.conrelid
+            AND att.attnum = cols.attnum
+           ORDER BY cols.ord
+         )
+    INTO existing_pkey_name, existing_pkey_columns
+    FROM pg_constraint AS con
+   WHERE con.conrelid = 'object_files'::regclass
+     AND con.contype = 'p'
+   LIMIT 1;
+
+  IF existing_pkey_name IS NULL THEN
+    ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id);
+  ELSIF existing_pkey_columns IS DISTINCT FROM ARRAY['object_id', 'file_id']::text[] THEN
+    EXECUTE format('ALTER TABLE object_files DROP CONSTRAINT %I', existing_pkey_name);
     ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (object_id, file_id);
   END IF;
 END $$`,

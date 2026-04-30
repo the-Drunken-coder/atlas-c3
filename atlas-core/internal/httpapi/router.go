@@ -37,7 +37,7 @@ type Dependencies struct {
 		StorageStatus(context.Context) model.DependencyStatus
 	}
 	// Files stages multipart uploads before commit; required for object file POST.
-	Files *objectfiles.Store
+	Files      *objectfiles.Store
 	Logger     *logging.Logger
 	Readiness  func(context.Context) (model.ReadinessResponse, int)
 	Descriptor func() (model.ServiceDescriptor, error)
@@ -591,14 +591,21 @@ func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request
 	objectID := req.PathValue("object_id")
 	fileID := req.PathValue("file_id")
 	var usageHint, contentTypeOverride string
-	var filePart *multipart.Part
-parts:
+	var fileHeaderContentType string
+	var stagedPath, detectedType string
+	var size int64
+	cleanupStage := func() {
+		if stagedPath != "" {
+			_ = os.Remove(stagedPath)
+		}
+	}
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
+			cleanupStage()
 			r.writeError(w, req, r.mapMultipartReadError(err))
 			return
 		}
@@ -606,12 +613,14 @@ parts:
 		switch name {
 		case "file_id":
 			_ = part.Close()
+			cleanupStage()
 			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
 			return
 		case "usage_hint":
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
+				cleanupStage()
 				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
@@ -620,69 +629,54 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
+				cleanupStage()
 				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			contentTypeOverride = v
 		case "file":
-			if filePart != nil {
+			if stagedPath != "" {
 				_ = part.Close()
+				cleanupStage()
 				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "invalid_value", Message: "only one file part is allowed"}))
 				return
 			}
-			// The file part must be the last part we read: another NextPart() would
-			// discard the unread file body (see mime/multipart.Reader docs).
-			filePart = part
-			break parts
+			if r.deps.Files == nil {
+				_ = part.Close()
+				r.writeError(w, req, model.InternalError("object file staging is not configured", nil))
+				return
+			}
+			fileHeaderContentType = part.Header.Get("Content-Type")
+			stagedPath, size, detectedType, err = r.deps.Files.Stage(req.Context(), objectID, fileID, part, maxFile)
+			_ = part.Close()
+			if err != nil {
+				r.writeError(w, req, r.mapChunkedReadError(err))
+				return
+			}
 		default:
+			if stagedPath != "" {
+				_, copyErr := io.Copy(io.Discard, part)
+				_ = part.Close()
+				cleanupStage()
+				if copyErr != nil {
+					r.writeError(w, req, r.mapMultipartReadError(copyErr))
+					return
+				}
+				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field"}))
+				return
+			}
 			_, _ = io.Copy(io.Discard, part)
 			_ = part.Close()
 		}
 	}
-	if filePart == nil {
+	if stagedPath == "" {
 		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file upload is required"}))
 		return
 	}
-	contentType, err := filePartContentType(filePart, contentTypeOverride)
+	contentType, err := filePartContentType(fileHeaderContentType, contentTypeOverride)
 	if err != nil {
-		_ = filePart.Close()
+		cleanupStage()
 		r.writeError(w, req, err)
-		return
-	}
-	if r.deps.Files == nil {
-		_ = filePart.Close()
-		r.writeError(w, req, model.InternalError("object file staging is not configured", nil))
-		return
-	}
-	stagedPath, size, detectedType, err := r.deps.Files.Stage(req.Context(), objectID, fileID, filePart, maxFile)
-	_ = filePart.Close()
-	if err != nil {
-		r.writeError(w, req, r.mapChunkedReadError(err))
-		return
-	}
-	cleanupStage := func() { _ = os.Remove(stagedPath) }
-
-	// Reject any part following the file part. We only need to peek at one
-	// extra part: if it exists the request is invalid regardless of what it is,
-	// so we drain it (surfacing read errors) and return a precise message.
-	if extra, err := mr.NextPart(); err == nil {
-		name := extra.FormName()
-		_, copyErr := io.Copy(io.Discard, extra)
-		_ = extra.Close()
-		cleanupStage()
-		if copyErr != nil {
-			r.writeError(w, req, r.mapMultipartReadError(copyErr))
-			return
-		}
-		msg := "multipart must not contain parts after the file field"
-		if name == "file_id" {
-			msg = "file_id is specified in the URL path; omit the file_id form field"
-		}
-		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: msg}))
-		return
-	} else if !errors.Is(err, io.EOF) {
-		cleanupStage()
-		r.writeError(w, req, r.mapMultipartReadError(err))
 		return
 	}
 
@@ -737,7 +731,7 @@ func (r *Router) mapChunkedReadError(err error) error {
 	return err
 }
 
-func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
+func filePartContentType(partHeaderContentType, formOverride string) (string, error) {
 	if formOverride != "" {
 		normalized, valid := mediatype.NormalizeContentType(formOverride)
 		if !valid {
@@ -745,8 +739,7 @@ func filePartContentType(p *multipart.Part, formOverride string) (string, error)
 		}
 		return normalized, nil
 	}
-	ct := p.Header.Get("Content-Type")
-	normalized, _ := mediatype.NormalizeContentType(ct)
+	normalized, _ := mediatype.NormalizeContentType(partHeaderContentType)
 	return normalized, nil
 }
 

@@ -101,9 +101,10 @@ def main() -> None:
     """Run the harness tick loop forever.
 
     Each iteration performs a full-query GET, ensures the baseline track,
-    and emits a single JSON line describing the outcome. Exceptions are
-    caught per-tick and logged as ``fusion.error`` events; the loop sleeps
-    10 seconds between ticks regardless of success.
+    and emits a single JSON line describing the outcome. Network, HTTP,
+    OS, and JSON decode failures are caught per-tick and logged as
+    ``fusion.error`` events; other exceptions still propagate. The loop
+    sleeps 10 seconds between ticks regardless of success.
     """
     while True:
         try:
