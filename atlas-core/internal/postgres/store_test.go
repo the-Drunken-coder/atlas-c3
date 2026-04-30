@@ -2,14 +2,27 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
+
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" || errors.Is(err, fs.ErrPermission) {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		t.Fatalf("symlink: %v", err)
+	}
+}
 
 func TestChooseLimit(t *testing.T) {
 	t.Parallel()
@@ -70,9 +83,7 @@ func TestCreateObjectFileRejectsPreStagedPathOutsideStagingViaSymlinkedParent(t 
 		t.Fatal(err)
 	}
 	linkPath := filepath.Join(files.StagingDir(), "linked")
-	if err := os.Symlink(outsideDir, linkPath); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, outsideDir, linkPath)
 	st := NewStore(nil, files, 16*1024*1024, nil)
 	_, err = st.CreateObjectFile(context.Background(), store.ObjectUploadInput{
 		File:               model.ObjectFile{ObjectID: "obj-1", FileID: "f1"},

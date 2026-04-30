@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,13 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/sightingcatalog"
 )
 
-func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore, http.Handler) {
+type routerFixture struct {
+	stores *servicetest.MemoryStore
+	router http.Handler
+	files  *objectfiles.Store
+}
+
+func newRouterFixture(t *testing.T, maxUploadBytes int64) routerFixture {
 	t.Helper()
 	cat, err := servicetest.NewDefaultCommandCatalog()
 	if err != nil {
@@ -42,7 +49,7 @@ func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore
 	if err != nil {
 		t.Fatal(err)
 	}
-	return stores, httpapi.NewRouter(httpapi.Dependencies{
+	return routerFixture{stores: stores, files: files, router: httpapi.NewRouter(httpapi.Dependencies{
 		AllowedOrigins: []string{"http://localhost:5173"},
 		StartedAt:      time.Now().UTC(),
 		MaxUploadBytes: maxUploadBytes,
@@ -57,51 +64,18 @@ func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore
 		Descriptor: func() (model.ServiceDescriptor, error) {
 			return model.ServiceDescriptor{Service: model.ServiceName, Status: "ok", Version: "test", StartedAt: time.Now().UTC(), ActiveCommandCatalogObjectID: cat.ObjectID, Links: map[string]string{"health": "/health"}}, nil
 		},
-	})
+	})}
 }
 
 func testRouter(t *testing.T) http.Handler {
 	t.Helper()
-	_, router := newTestRouter(t, 20*1024*1024)
-	return router
+	return newRouterFixture(t, 20*1024*1024).router
 }
 
 func testUploadRouter(t *testing.T) (*servicetest.MemoryStore, http.Handler, *objectfiles.Store) {
 	t.Helper()
-	cat, err := servicetest.NewDefaultCommandCatalog()
-	if err != nil {
-		t.Fatal(err)
-	}
-	stores := servicetest.NewMemoryStore()
-	stores.Entities["asset-1"] = model.Entity{EntityID: "asset-1", Type: "asset", JSON: model.JSONMap{"components": map[string]any{"supported_commands": map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "commands": []any{"move_to_location"}}}}}
-	stores.Objects["obj-1"] = model.Object{ObjectID: "obj-1", Type: "f", OwnerType: "entity", OwnerID: "e", JSON: model.JSONMap{}}
-	commands := &catalog.Active{}
-	commands.Set(cat)
-	sightings := &sightingcatalog.Active{}
-	sightings.Set(sightingcatalog.Catalog{ByKind: map[string]sightingcatalog.Kind{"analysis": {Kind: "analysis", DataSchema: map[string]any{"type": "object", "additionalProperties": true}}}})
-	hub := events.NewHub()
-	svc := service.New(stores, commands, sightings, hub)
-	files, err := objectfiles.New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	router := httpapi.NewRouter(httpapi.Dependencies{
-		AllowedOrigins: []string{"http://localhost:5173"},
-		StartedAt:      time.Now().UTC(),
-		MaxUploadBytes: 50,
-		Services:       svc,
-		Events:         hub,
-		CommandCatalog: commands,
-		ObjectStore:    stores,
-		Files:          files,
-		Readiness: func(_ context.Context) (model.ReadinessResponse, int) {
-			return model.ReadinessResponse{Status: "ready", Timestamp: time.Now().UTC(), Dependencies: map[string]model.DependencyStatus{"postgres": {Status: "ready"}, "object_storage": {Status: "ready"}, "command_catalog": {Status: "ready"}}}, http.StatusOK
-		},
-		Descriptor: func() (model.ServiceDescriptor, error) {
-			return model.ServiceDescriptor{Service: model.ServiceName, Status: "ok", Version: "test", StartedAt: time.Now().UTC(), ActiveCommandCatalogObjectID: cat.ObjectID, Links: map[string]string{"health": "/health"}}, nil
-		},
-	})
-	return stores, router, files
+	fixture := newRouterFixture(t, 50)
+	return fixture.stores, fixture.router, fixture.files
 }
 
 func assertCleanStagingDir(t *testing.T, files *objectfiles.Store) {
@@ -112,8 +86,11 @@ func assertCleanStagingDir(t *testing.T, files *objectfiles.Store) {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && path != root {
+		if path != root {
 			rel, _ := filepath.Rel(root, path)
+			if d.IsDir() {
+				rel += string(filepath.Separator)
+			}
 			leftover = append(leftover, rel)
 		}
 		return nil
@@ -294,6 +271,30 @@ func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
 	}
 }
 
+func TestObjectFileUploadRejectsOverlongFileIDBeforeStaging(t *testing.T) {
+	_, router, files := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/"+strings.Repeat("x", 51), &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	assertCleanStagingDir(t, files)
+}
+
 func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
@@ -324,6 +325,35 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	}
 	if file.ContentType != "text/plain; charset=utf-8" {
 		t.Fatalf("unexpected content type: %s", file.ContentType)
+	}
+}
+
+func TestObjectFileUploadFallsBackToDetectedContentType(t *testing.T) {
+	stores, router, _ := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="x.dat"`)
+	pw, err := mw.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	got := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]
+	if got.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type: %q", got.ContentType)
 	}
 }
 

@@ -349,7 +349,7 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	// exception being a post-commit byte-promotion failure, which the in-memory
 	// store does not have). A defer is the cleanest way to guarantee that.
 	if input.PreStagedPath != "" {
-		defer func() { _ = os.Remove(input.PreStagedPath) }()
+		defer func() { _ = objectfiles.CleanupStagedPath(input.PreStagedPath, stagingDirForPath(input.PreStagedPath)) }()
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -556,6 +556,15 @@ func objectFileValues(input map[ObjectFileKey]model.ObjectFile) []model.ObjectFi
 		return out[i].FileID < out[j].FileID
 	})
 	return out
+}
+
+func stagingDirForPath(path string) string {
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "staging" {
+			return dir
+		}
+	}
+	return filepath.Dir(path)
 }
 
 func values[T any](input map[string]T) []T {

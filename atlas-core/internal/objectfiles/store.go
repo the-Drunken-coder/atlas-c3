@@ -169,7 +169,11 @@ func (s *Store) Promote(stagePath, logicalPath string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(stagePath, target)
+	if err := os.Rename(stagePath, target); err != nil {
+		return err
+	}
+	pruneEmptyStagingParents(filepath.Dir(stagePath), s.StagingDir())
+	return nil
 }
 
 func (s *Store) Delete(logicalPath string) error {
@@ -198,6 +202,56 @@ func (s *Store) Open(logicalPath string) (io.ReadCloser, os.FileInfo, error) {
 		return nil, nil, err
 	}
 	return file, stat, nil
+}
+
+func CleanupStagedPath(stagedPath, stagingDir string) error {
+	if stagedPath == "" {
+		return nil
+	}
+	if err := os.Remove(stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	pruneEmptyStagingParents(filepath.Dir(stagedPath), stagingDir)
+	return nil
+}
+
+func pruneEmptyStagingParents(path, stagingDir string) {
+	if path == "" || stagingDir == "" {
+		return
+	}
+	base, err := filepath.Abs(stagingDir)
+	if err != nil {
+		return
+	}
+	current, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	for current != base {
+		within, relErr := pathWithinDir(base, current)
+		if relErr != nil || !within {
+			return
+		}
+		if err := os.Remove(current); err != nil {
+			return
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return
+		}
+		current = parent
+	}
+}
+
+func pathWithinDir(dir, path string) (bool, error) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (s *Store) TruncateBack(logicalPath string, size int64) error {
