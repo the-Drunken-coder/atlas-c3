@@ -79,9 +79,13 @@ func TestReadJSONMapFieldExplicitNullVsAbsent(t *testing.T) {
 		if !ok || ce.ErrorCode != "validation_failed" {
 			t.Fatalf("expected validation_failed, got %v", err)
 		}
-		fields, ok := ce.Details["fields"].([]model.FieldError)
+		rawFields, exists := ce.Details["fields"]
+		if !exists {
+			t.Fatalf("expected fields detail, got %#v", ce.Details)
+		}
+		fields, ok := rawFields.([]model.FieldError)
 		if !ok || len(fields) != 1 {
-			t.Fatalf("expected one field error, got %#v", ce.Details["fields"])
+			t.Fatalf("expected one field error, got %#v", rawFields)
 		}
 		want := model.FieldError{Field: "json", Code: "invalid_type", Message: "must be a JSON object"}
 		if fields[0] != want {

@@ -885,6 +885,10 @@ func canonicalizeStagedPathForCompare(path string) string {
 	if err != nil {
 		return filepath.Clean(path)
 	}
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		return filepath.Clean(resolvedPath)
+	}
 	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(absPath))
 	if err != nil {
 		return filepath.Clean(absPath)
