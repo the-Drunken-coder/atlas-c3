@@ -14,6 +14,9 @@ def choose_action() -> str:
     callers that run non-interactively should pass the action via argv
     instead of relying on this prompt.
 
+    Raises:
+        SystemExit: Exit status 2 when stdin reaches EOF before a selection is made.
+
     Returns:
         The chosen action name.
     """

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
@@ -433,13 +434,12 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	file := input.File
 	file.Path = logicalPath
 	file.SizeBytes = int64(len(bytesValue))
-	if file.ContentType == "" {
-		if input.PreStagedPath != "" && input.PreStagedContentType != "" {
-			file.ContentType = input.PreStagedContentType
-		}
-		if file.ContentType == "" {
-			file.ContentType = "application/octet-stream"
-		}
+	if normalized, valid := mediatype.NormalizeContentType(file.ContentType); valid && strings.TrimSpace(file.ContentType) != "" {
+		file.ContentType = normalized
+	} else if input.PreStagedPath != "" {
+		file.ContentType, _ = mediatype.NormalizeContentType(input.PreStagedContentType)
+	} else {
+		file.ContentType = "application/octet-stream"
 	}
 	now := time.Now().UTC()
 	if file.CreatedAt.IsZero() {

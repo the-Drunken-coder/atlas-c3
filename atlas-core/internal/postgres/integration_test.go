@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/postgres"
@@ -106,4 +107,88 @@ func TestPostCommitDeleteObjectMarksMismatchOnNonRemovableFile(t *testing.T) {
 	if files.Status().Status == "ready" {
 		t.Fatal("expected storage to be not ready after failed post-commit delete")
 	}
+}
+
+func TestEnsureSchemaMigratesObjectFilesPrimaryKeyToComposite(t *testing.T) {
+	databaseURL := os.Getenv("ATLAS_CORE_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("ATLAS_CORE_TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	adminPool, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open admin pool: %v", err)
+	}
+	defer adminPool.Close()
+
+	schemaName := fmt.Sprintf("atlas_schema_%d", time.Now().UnixNano())
+	if _, err := adminPool.Exec(ctx, "CREATE SCHEMA "+schemaName); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	defer func() {
+		_, _ = adminPool.Exec(ctx, "DROP SCHEMA "+schemaName+" CASCADE")
+	}()
+
+	pool := openSchemaScopedPool(t, ctx, databaseURL, schemaName)
+	defer pool.Close()
+	if err := postgres.EnsureSchema(ctx, pool); err != nil {
+		t.Fatalf("initial ensure schema: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE object_files DROP CONSTRAINT object_files_pkey`); err != nil {
+		t.Fatalf("drop composite primary key: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (file_id)`); err != nil {
+		t.Fatalf("add legacy primary key: %v", err)
+	}
+
+	if err := postgres.EnsureSchema(ctx, pool); err != nil {
+		t.Fatalf("migrated ensure schema: %v", err)
+	}
+
+	var pkColumns []string
+	row := pool.QueryRow(ctx, `SELECT ARRAY(
+		SELECT att.attname
+		FROM pg_constraint AS con
+		JOIN unnest(con.conkey) WITH ORDINALITY AS cols(attnum, ord) ON true
+		JOIN pg_attribute AS att
+		  ON att.attrelid = con.conrelid
+		 AND att.attnum = cols.attnum
+		WHERE con.conrelid = 'object_files'::regclass
+		  AND con.contype = 'p'
+		ORDER BY cols.ord
+	)`)
+	if err := row.Scan(&pkColumns); err != nil {
+		t.Fatalf("scan primary key columns: %v", err)
+	}
+	if len(pkColumns) != 2 || pkColumns[0] != "object_id" || pkColumns[1] != "file_id" {
+		t.Fatalf("unexpected primary key columns: %v", pkColumns)
+	}
+
+	for _, objectID := range []string{"obj-a", "obj-b"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO objects (object_id, type, owner_type, owner_id, json, created_at, updated_at) VALUES ($1,'t','system','active_command_catalog','{}'::jsonb, now(), now())`, objectID); err != nil {
+			t.Fatalf("insert object %s: %v", objectID, err)
+		}
+	}
+	for _, objectID := range []string{"obj-a", "obj-b"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO object_files (file_id, object_id, path, content_type, size_bytes, usage_hint, created_at, updated_at) VALUES ('shared-file',$1,$2,'application/octet-stream',1,NULL,now(),now())`, objectID, fmt.Sprintf("objects/%s/shared-file", objectID)); err != nil {
+			t.Fatalf("insert object file for %s: %v", objectID, err)
+		}
+	}
+}
+
+func openSchemaScopedPool(t *testing.T, ctx context.Context, databaseURL, schemaName string) *pgxpool.Pool {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schemaName
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open scoped pool: %v", err)
+	}
+	return pool
 }

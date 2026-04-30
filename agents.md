@@ -61,3 +61,4 @@ These guidelines are working if they produce fewer unnecessary diff changes, few
 ## Project Notes
 
 - The repository root is still the workspace/docs root; the executable Atlas Core implementation now lives under `atlas-core`, matching the build plan's implementation root.
+- Some issue lists may lag the current branch state; for example, verify `.github/workflows/ci.yml` before "fixing" startup-test env wiring because `ATLAS_CORE_DATABASE_URL` may already be present there.

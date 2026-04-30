@@ -327,6 +327,46 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	}
 }
 
+func TestObjectFileUploadAcceptsMetadataAfterFilePart(t *testing.T) {
+	stores, router, files := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("usage_hint", "thumbnail"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("content_type", "text/plain; charset=utf-8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	got, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]
+	if !ok {
+		t.Fatal("expected object file to be persisted")
+	}
+	if got.UsageHint != "thumbnail" {
+		t.Fatalf("unexpected usage hint: %q", got.UsageHint)
+	}
+	if got.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type: %q", got.ContentType)
+	}
+	assertCleanStagingDir(t, files)
+}
+
 func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) {
 	stores, router, _ := testUploadRouter(t)
 	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = model.ObjectFile{FileID: "f1", ObjectID: "obj-1", ContentType: "bad\r\nvalue", SizeBytes: 3}
