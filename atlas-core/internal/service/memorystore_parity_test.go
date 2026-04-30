@@ -151,3 +151,30 @@ func TestMemoryStoreCreateObjectFileRemovesPreStagedOnSuccess(t *testing.T) {
 		t.Fatalf("expected staged file to be removed on success, stat err=%v", statErr)
 	}
 }
+
+func TestMemoryStoreGetFullQueryStateOrdersObjectFilesLikePostgres(t *testing.T) {
+	mem := servicetest.NewMemoryStore()
+	older := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Minute)
+	mem.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-b", FileID: "f2"}] = model.ObjectFile{ObjectID: "obj-b", FileID: "f2", UpdatedAt: older}
+	mem.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-a", FileID: "f1"}] = model.ObjectFile{ObjectID: "obj-a", FileID: "f1", UpdatedAt: newer}
+	mem.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-a", FileID: "f0"}] = model.ObjectFile{ObjectID: "obj-a", FileID: "f0", UpdatedAt: older}
+
+	state, err := mem.GetFullQueryState(context.Background())
+	if err != nil {
+		t.Fatalf("full query state: %v", err)
+	}
+	got := make([]string, 0, len(state.ObjectFiles))
+	for _, file := range state.ObjectFiles {
+		got = append(got, file.ObjectID+"/"+file.FileID)
+	}
+	want := []string{"obj-a/f1", "obj-a/f0", "obj-b/f2"}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected object file count: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected object file order: got %v want %v", got, want)
+		}
+	}
+}

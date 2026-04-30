@@ -351,10 +351,11 @@ func (s *Services) CreateObject(ctx context.Context, input ObjectCreateInput) (m
 	if err := requireValidID("object_id", input.ObjectID); err != nil {
 		return model.Object{}, err
 	}
-	if err := validateObjectInput(ctx, s.stores, input.ObjectID, input.Type, input.OwnerType, input.OwnerID, input.JSON); err != nil {
+	objectType := strings.TrimSpace(input.Type)
+	if err := validateObjectInput(ctx, s.stores, input.ObjectID, objectType, input.OwnerType, input.OwnerID, input.JSON); err != nil {
 		return model.Object{}, err
 	}
-	object := model.Object{ObjectID: input.ObjectID, Type: input.Type, OwnerType: input.OwnerType, OwnerID: input.OwnerID, JSON: model.NormalizeJSONMap(input.JSON), CreatedAt: s.now(), UpdatedAt: s.now()}
+	object := model.Object{ObjectID: input.ObjectID, Type: objectType, OwnerType: input.OwnerType, OwnerID: input.OwnerID, JSON: model.NormalizeJSONMap(input.JSON), CreatedAt: s.now(), UpdatedAt: s.now()}
 	created, err := s.stores.CreateObject(ctx, object)
 	if err != nil {
 		return model.Object{}, err
@@ -377,7 +378,7 @@ func (s *Services) PatchObject(ctx context.Context, id string, patch ObjectPatch
 		return model.Object{}, err
 	}
 	if patch.Type != nil {
-		object.Type = *patch.Type
+		object.Type = strings.TrimSpace(*patch.Type)
 	}
 	object.JSON = model.MergeNamedSections(object.JSON, patch.JSON)
 	if err := validateObjectInput(ctx, s.stores, object.ObjectID, object.Type, object.OwnerType, object.OwnerID, object.JSON); err != nil {

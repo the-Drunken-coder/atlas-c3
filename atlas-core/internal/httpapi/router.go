@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -873,7 +874,22 @@ func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
 		return false
 	}
 	sp, _ := ce.Details["staged_path"].(string)
-	return sp != "" && sp == stagedPath
+	return sp != "" && canonicalizeStagedPathForCompare(sp) == canonicalizeStagedPathForCompare(stagedPath)
+}
+
+func canonicalizeStagedPathForCompare(path string) string {
+	if path == "" {
+		return ""
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if err != nil {
+		return filepath.Clean(absPath)
+	}
+	return filepath.Clean(filepath.Join(resolvedParent, filepath.Base(absPath)))
 }
 
 // readJSONMapField extracts a JSON object field from a decoded request body.

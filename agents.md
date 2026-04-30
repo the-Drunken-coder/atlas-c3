@@ -62,3 +62,4 @@ These guidelines are working if they produce fewer unnecessary diff changes, few
 
 - The repository root is still the workspace/docs root; the executable Atlas Core implementation now lives under `atlas-core`, matching the build plan's implementation root.
 - Some issue lists may lag the current branch state; for example, verify `.github/workflows/ci.yml` before "fixing" startup-test env wiring because `ATLAS_CORE_DATABASE_URL` may already be present there.
+- Stale issue reports can also target already-fixed code in Atlas Core; verify the cited lines before changing them (for example, ordered `object_files` primary-key introspection in `internal/postgres/schema.go` and the EOF/SystemExit behavior already documented in `tools/atlas-core-cli/atlas_core_cli/menu.py`).

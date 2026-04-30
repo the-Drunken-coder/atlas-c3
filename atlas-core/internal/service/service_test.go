@@ -293,3 +293,39 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 		t.Fatalf("expected catalog_unavailable due to size limit, got message: %s", ce.Message)
 	}
 }
+
+func TestCreateObjectTrimsTypeBeforePersisting(t *testing.T) {
+	svc, _, _ := setupServices(t)
+	created, err := svc.CreateObject(context.Background(), service.ObjectCreateInput{
+		ObjectID:  "obj-1",
+		Type:      "  observation_media  ",
+		OwnerType: "system",
+		OwnerID:   "active_command_catalog",
+		JSON:      model.JSONMap{},
+	})
+	if err != nil {
+		t.Fatalf("create object: %v", err)
+	}
+	if created.Type != "observation_media" {
+		t.Fatalf("expected trimmed type, got %q", created.Type)
+	}
+}
+
+func TestPatchObjectTrimsTypeBeforePersisting(t *testing.T) {
+	svc, stores, _ := setupServices(t)
+	stores.Objects["obj-1"] = model.Object{
+		ObjectID:  "obj-1",
+		Type:      "observation_media",
+		OwnerType: "system",
+		OwnerID:   "active_command_catalog",
+		JSON:      model.JSONMap{},
+	}
+	padded := "  object_manifest  "
+	updated, err := svc.PatchObject(context.Background(), "obj-1", service.ObjectPatchInput{Type: &padded})
+	if err != nil {
+		t.Fatalf("patch object: %v", err)
+	}
+	if updated.Type != "object_manifest" {
+		t.Fatalf("expected trimmed type, got %q", updated.Type)
+	}
+}

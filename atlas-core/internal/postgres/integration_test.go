@@ -140,6 +140,9 @@ func TestEnsureSchemaMigratesObjectFilesPrimaryKeyToComposite(t *testing.T) {
 	if _, err := pool.Exec(ctx, `ALTER TABLE object_files ADD CONSTRAINT object_files_pkey PRIMARY KEY (file_id)`); err != nil {
 		t.Fatalf("add legacy primary key: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `CREATE INDEX object_files_object_idx ON object_files(object_id)`); err != nil {
+		t.Fatalf("add legacy object_id index: %v", err)
+	}
 
 	if err := postgres.EnsureSchema(ctx, pool); err != nil {
 		t.Fatalf("migrated ensure schema: %v", err)
@@ -162,6 +165,13 @@ func TestEnsureSchemaMigratesObjectFilesPrimaryKeyToComposite(t *testing.T) {
 	}
 	if len(pkColumns) != 2 || pkColumns[0] != "object_id" || pkColumns[1] != "file_id" {
 		t.Fatalf("unexpected primary key columns: %v", pkColumns)
+	}
+	var legacyIndexCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'object_files_object_idx'`).Scan(&legacyIndexCount); err != nil {
+		t.Fatalf("count legacy index: %v", err)
+	}
+	if legacyIndexCount != 0 {
+		t.Fatalf("expected redundant object_files_object_idx to be dropped, found %d entries", legacyIndexCount)
 	}
 
 	for _, objectID := range []string{"obj-a", "obj-b"} {
