@@ -131,7 +131,7 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        attempt_timeout = max(1.0, remaining)
+        attempt_timeout = remaining
         try:
             with urllib.request.urlopen(url, timeout=attempt_timeout) as response:
                 payload = json.load(response)

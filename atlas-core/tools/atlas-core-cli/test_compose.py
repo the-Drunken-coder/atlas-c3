@@ -71,6 +71,24 @@ class ComposeHelperTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "boom"):
                 module.wait_for_readiness(timeout_seconds=3)
 
+    def test_wait_for_readiness_does_not_exceed_remaining_timeout(self) -> None:
+        """Pass the remaining deadline budget through to each readiness probe."""
+        module = import_compose_module()
+        monotonic_values = iter([0.0, 0.0, 0.26, 0.26])
+
+        def fake_urlopen(_url: str, timeout: float):
+            self.assertAlmostEqual(timeout, 0.25)
+            raise module.urllib.error.URLError("boom")
+
+        with (
+            mock.patch.object(module, "readiness_host_port", return_value=8080),
+            mock.patch.object(module.urllib.request, "urlopen", side_effect=fake_urlopen),
+            mock.patch.object(module.time, "monotonic", side_effect=lambda: next(monotonic_values)),
+            mock.patch.object(module.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(SystemExit, "boom"):
+                module.wait_for_readiness(timeout_seconds=0.25)
+
     def test_destructive_cleanup_deduplicates_resource_ids(self) -> None:
         """Avoid repeating docker removals when list commands return duplicate IDs."""
         module = import_compose_module()

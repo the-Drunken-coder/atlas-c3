@@ -123,12 +123,22 @@ func TestEnsureSchemaDropsUpdatedAtIndexBeforeRecreatingIt(t *testing.T) {
 
 func TestMapDeleteObjectErrorForeignKeyViolationBecomesConflict(t *testing.T) {
 	t.Parallel()
-	err := mapDeleteObjectError(&pgconn.PgError{Code: "23503", ConstraintName: "tasks_command_catalog_object_id_fkey"}, "obj-1")
+	pgErr := &pgconn.PgError{Code: "23503", ConstraintName: "tasks_command_catalog_object_id_fkey"}
+	err := mapDeleteObjectError(pgErr, "obj-1")
 	coreErr, ok := model.IsCoreError(err)
 	if !ok || coreErr.ErrorCode != "conflict" {
 		t.Fatalf("expected conflict, got %v", err)
 	}
 	if reason, _ := coreErr.Details["reason"].(string); reason != "referenced" {
 		t.Fatalf("unexpected conflict reason: %#v", coreErr.Details)
+	}
+	if dependentType, _ := coreErr.Details["dependent_resource_type"].(string); dependentType != "task" {
+		t.Fatalf("unexpected conflict details: %#v", coreErr.Details)
+	}
+	if _, leaked := coreErr.Details["constraint"]; leaked {
+		t.Fatalf("unexpected raw constraint leak: %#v", coreErr.Details)
+	}
+	if coreErr.Cause() != pgErr {
+		t.Fatalf("expected pg error to be retained as cause, got %#v", coreErr.Cause())
 	}
 }

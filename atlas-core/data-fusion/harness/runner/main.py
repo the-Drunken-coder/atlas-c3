@@ -102,9 +102,9 @@ def main() -> None:
 
     Each iteration performs a full-query GET, ensures the baseline track,
     and emits a single JSON line describing the outcome. Network, HTTP,
-    OS, and JSON decode failures are caught per-tick and logged as
-    ``fusion.error`` events; other exceptions still propagate. The loop
-    sleeps 10 seconds between ticks regardless of success.
+    request-timeout, and JSON decode failures are caught per-tick and
+    logged as ``fusion.error`` events; other exceptions still propagate.
+    The loop sleeps 10 seconds between ticks regardless of success.
     """
     while True:
         try:

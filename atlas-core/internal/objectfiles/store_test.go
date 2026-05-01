@@ -133,6 +133,7 @@ func TestValidateObjectFilePathSegmentsUsesStandardIDRules(t *testing.T) {
 	}{
 		{name: "leading space", objectID: " object-1", fileID: "file-1"},
 		{name: "trailing space", objectID: "object-1", fileID: "file-1 "},
+		{name: "dot dot", objectID: "object-1", fileID: ".."},
 		{name: "too long", objectID: strings.Repeat("o", 51), fileID: "file-1"},
 	}
 	for _, test := range tests {

@@ -26,7 +26,7 @@ func TestCatalogCloneDeepCopiesMetadata(t *testing.T) {
 	}
 }
 
-func TestMaterializeRejectsMismatchedExistingCatalogBytes(t *testing.T) {
+func TestMaterializeRejectsMismatchedExistingCatalogFile(t *testing.T) {
 	t.Parallel()
 	raw := []byte(`{"catalog_id":"c1","version":"1","commands":[{"type":"move_to_location","display_name":"Move","description":"Move","parameters_schema":{"type":"object","additionalProperties":true}}]}`)
 	cat := Catalog{
@@ -42,21 +42,45 @@ func TestMaterializeRejectsMismatchedExistingCatalogBytes(t *testing.T) {
 		ContentHash: ContentHashOfBytes(raw),
 	}
 	cat.ObjectID = ObjectIDFromContentHash(cat.ContentHash)
-	badRaw := append([]byte(nil), cat.Raw...)
-	badRaw[0] = '['
-	stores := &materializeTestStore{
-		object: model.Object{ObjectID: cat.ObjectID, Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}},
-		file:   model.ObjectFile{ObjectID: cat.ObjectID, FileID: "catalog-json", SizeBytes: int64(len(badRaw)), ContentType: "application/json"},
-		bytes:  badRaw,
+	cases := []struct {
+		name      string
+		sizeBytes int64
+		bytes     []byte
+	}{
+		{
+			name:      "byte mismatch",
+			sizeBytes: int64(len(raw)),
+			bytes: func() []byte {
+				badRaw := append([]byte(nil), raw...)
+				badRaw[0] = '['
+				return badRaw
+			}(),
+		},
+		{
+			name:      "size mismatch",
+			sizeBytes: int64(len(raw) + 1),
+			bytes:     append([]byte(nil), raw...),
+		},
 	}
 	cat.ByType = map[string]Command{"move_to_location": cat.Commands[0]}
-	_, err := Materialize(context.Background(), stores, cat)
-	if err == nil {
-		t.Fatal("expected catalog mismatch error")
-	}
-	coreErr, ok := model.IsCoreError(err)
-	if !ok || coreErr.ErrorCode != "catalog_unavailable" {
-		t.Fatalf("expected catalog_unavailable, got %v", err)
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stores := &materializeTestStore{
+				object: model.Object{ObjectID: cat.ObjectID, Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}},
+				file:   model.ObjectFile{ObjectID: cat.ObjectID, FileID: "catalog-json", SizeBytes: test.sizeBytes, ContentType: "application/json"},
+				bytes:  test.bytes,
+			}
+			_, err := Materialize(context.Background(), stores, cat)
+			if err == nil {
+				t.Fatal("expected catalog mismatch error")
+			}
+			coreErr, ok := model.IsCoreError(err)
+			if !ok || coreErr.ErrorCode != "catalog_unavailable" {
+				t.Fatalf("expected catalog_unavailable, got %v", err)
+			}
+		})
 	}
 }
 

@@ -864,9 +864,18 @@ func mapDeleteObjectError(err error, resourceID string) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-		return model.Conflict("object", resourceID, "referenced", map[string]any{"constraint": pgErr.ConstraintName})
+		return model.Conflict("object", resourceID, "referenced", deleteObjectConflictDetails(pgErr.ConstraintName)).WithCause(err)
 	}
 	return err
+}
+
+func deleteObjectConflictDetails(constraintName string) map[string]any {
+	switch constraintName {
+	case "tasks_command_catalog_object_id_fkey":
+		return map[string]any{"dependent_resource_type": "task"}
+	default:
+		return nil
+	}
 }
 
 // defaultUploadLimitBytes matches servicetest.memUploadLimit when no per-request cap is set.
