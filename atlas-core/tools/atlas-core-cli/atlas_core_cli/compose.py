@@ -38,7 +38,11 @@ def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 
 def parse_host_port(raw_port: str) -> int:
-    """Validate a host port string and return it as an integer."""
+    """Validate a host port string and return it as an integer.
+
+    Raises:
+        SystemExit: If ``raw_port`` is not a valid TCP port number.
+    """
     try:
         port = int(raw_port)
     except ValueError as exc:
@@ -49,7 +53,7 @@ def parse_host_port(raw_port: str) -> int:
 
 
 def dotenv_host_port() -> str | None:
-    """Read ``ATLAS_CORE_HOST_PORT`` from ``ROOT/.env`` when present."""
+    """Read the raw ``ATLAS_CORE_HOST_PORT`` value from ``ROOT/.env`` when present."""
     env_path = ROOT / ".env"
     if not env_path.is_file():
         return None
