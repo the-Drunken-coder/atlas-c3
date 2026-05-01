@@ -23,3 +23,25 @@ updates:
     commit-message:
       prefix: ci
       include: scope
+  - package-ecosystem: gomod
+    directory: /atlas-core
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: deps
+      include: scope
+  - package-ecosystem: docker
+    directory: /atlas-core
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: deps
+      include: scope

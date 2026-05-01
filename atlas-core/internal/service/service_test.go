@@ -167,6 +167,22 @@ func TestDeleteObjectRejectsTaskCatalogReferences(t *testing.T) {
 	}
 }
 
+func TestDeleteObjectRejectsActiveCommandCatalog(t *testing.T) {
+	svc, stores, catalogID := setupServices(t)
+	stores.Objects[catalogID] = model.Object{ObjectID: catalogID, Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}}
+	err := svc.DeleteObject(context.Background(), catalogID)
+	if err == nil {
+		t.Fatal("expected conflict")
+	}
+	coreErr, ok := model.IsCoreError(err)
+	if !ok || coreErr.ErrorCode != "conflict" {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	if reason, _ := coreErr.Details["reason"].(string); reason != "protected" {
+		t.Fatalf("unexpected conflict details: %#v", coreErr.Details)
+	}
+}
+
 func TestTransitionTaskStatusIdempotent(t *testing.T) {
 	svc, stores, catalogID := setupServices(t)
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: catalogID, JSON: model.JSONMap{"components": map[string]any{"command": map[string]any{"type": "move_to_location"}, "parameters": map[string]any{"latitude": 1.0}}}}

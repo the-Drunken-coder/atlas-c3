@@ -115,6 +115,30 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestCreateObjectRejectsNonStringObjectID(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/objects", strings.NewReader(`{"object_id":123,"type":"f","owner_type":"entity","owner_id":"asset-1","json":{}}`))
+	rr := httptest.NewRecorder()
+	testRouter(t).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"field":"object_id"`) || !strings.Contains(rr.Body.String(), `"code":"invalid_type"`) {
+		t.Fatalf("expected object_id invalid_type, got %s", rr.Body.String())
+	}
+}
+
+func TestPatchObjectRejectsNonStringType(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPatch, "/objects/obj-1", strings.NewReader(`{"type":123}`))
+	rr := httptest.NewRecorder()
+	testRouter(t).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"field":"type"`) || !strings.Contains(rr.Body.String(), `"code":"invalid_type"`) {
+		t.Fatalf("expected type invalid_type, got %s", rr.Body.String())
+	}
+}
+
 func TestCreateEntityRejectsUnknownFields(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/entities", strings.NewReader(`{"entity_id":"asset-2","type":"asset","json":{"components":{"supported_commands":{"observed_at":"2026-01-01T00:00:00Z","commands":[]}}},"extra":true}`))
 	rr := httptest.NewRecorder()
@@ -483,4 +507,23 @@ func TestObjectFileUploadTruncatedTrailingPartReturns400(t *testing.T) {
 		t.Fatal("expected no object file to be persisted when trailing part is truncated")
 	}
 	assertCleanStagingDir(t, files)
+}
+
+func TestStreamFlushesImmediatelyAfterConnect(t *testing.T) {
+	fixture := newRouterFixture(t, 20*1024*1024)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/stream/changes", nil).WithContext(ctx)
+	rr := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		fixture.router.ServeHTTP(rr, req)
+		close(done)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+	<-done
+	if !strings.HasPrefix(rr.Body.String(), ": connected\n\n") {
+		t.Fatalf("expected initial SSE flush, got %q", rr.Body.String())
+	}
 }

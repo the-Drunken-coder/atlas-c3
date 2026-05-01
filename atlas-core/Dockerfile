@@ -1,11 +1,13 @@
 FROM golang:1.25 AS build
-ARG TARGETARCH=amd64
-ARG TARGETOS=linux
+ARG TARGETARCH
+ARG TARGETOS
 WORKDIR /workspace
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/atlas-core ./cmd/atlas-core
+RUN : "${TARGETOS:=$(go env GOOS)}"; \
+    : "${TARGETARCH:=$(go env GOARCH)}"; \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/atlas-core ./cmd/atlas-core
 
 FROM alpine:3.21
 LABEL atlas.core.project=atlas-core

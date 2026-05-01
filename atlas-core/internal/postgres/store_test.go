@@ -142,3 +142,25 @@ func TestMapDeleteObjectErrorForeignKeyViolationBecomesConflict(t *testing.T) {
 		t.Fatalf("expected pg error to be retained as cause, got %#v", coreErr.Cause())
 	}
 }
+
+func TestMapPGErrorForeignKeyViolationBecomesStructuredConflict(t *testing.T) {
+	t.Parallel()
+	pgErr := &pgconn.PgError{Code: "23503", ConstraintName: "tasks_asset_id_fkey"}
+	err := mapPGError(pgErr, "task", "task-1")
+	coreErr, ok := model.IsCoreError(err)
+	if !ok || coreErr.ErrorCode != "conflict" {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	if reason, _ := coreErr.Details["reason"].(string); reason != "invalid_reference" {
+		t.Fatalf("unexpected conflict reason: %#v", coreErr.Details)
+	}
+	if gotField, _ := coreErr.Details["field"].(string); gotField != "asset_id" {
+		t.Fatalf("unexpected conflict details: %#v", coreErr.Details)
+	}
+	if gotType, _ := coreErr.Details["referenced_resource_type"].(string); gotType != "entity" {
+		t.Fatalf("unexpected conflict details: %#v", coreErr.Details)
+	}
+	if coreErr.Cause() != pgErr {
+		t.Fatalf("expected pg error to be retained as cause, got %#v", coreErr.Cause())
+	}
+}

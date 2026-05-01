@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
@@ -53,7 +54,10 @@ func mergeTaskComponentsOnlyProgressResultError(current, patch model.JSONMap) (m
 	if !ok && out["components"] != nil {
 		return out, model.ValidationError(model.FieldError{Field: "json.components", Code: "invalid_type", Message: "components must be an object"})
 	}
-	mergedComp := deepCloneStringAnyMap(orig)
+	mergedComp, err := deepCloneStringAnyMap(orig)
+	if err != nil {
+		return model.JSONMap{}, model.InternalError("task json clone failed", err)
+	}
 	if mergedComp == nil {
 		mergedComp = map[string]any{}
 	}
@@ -68,20 +72,22 @@ func mergeTaskComponentsOnlyProgressResultError(current, patch model.JSONMap) (m
 	return out, nil
 }
 
-func deepCloneStringAnyMap(m map[string]any) map[string]any {
+func deepCloneStringAnyMap(m map[string]any) (map[string]any, error) {
 	if m == nil {
-		return nil
+		return nil, nil
 	}
 	raw, err := json.Marshal(m)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("marshal json map: %w", err)
 	}
 	var out map[string]any
-	_ = json.Unmarshal(raw, &out)
-	if out == nil {
-		return map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("unmarshal json map: %w", err)
 	}
-	return out
+	if out == nil {
+		return map[string]any{}, nil
+	}
+	return out, nil
 }
 
 // taskCommandAndParametersEqual returns true if json.components.command and

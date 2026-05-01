@@ -141,6 +141,11 @@ func (a *App) Readiness(ctx context.Context) (model.ReadinessResponse, int) {
 	} else {
 		dependencies["command_catalog"] = model.DependencyStatus{Status: "error", Message: "catalog unavailable"}
 	}
+	if _, ok := a.SightingCatalog.Get(); ok {
+		dependencies["sighting_catalog"] = model.DependencyStatus{Status: "ready"}
+	} else {
+		dependencies["sighting_catalog"] = model.DependencyStatus{Status: "error", Message: "catalog unavailable"}
+	}
 	statusCode := http.StatusOK
 	overall := "ready"
 	if dependencies["postgres"].Status != "ready" || dependencies["object_storage"].Status != "ready" {
@@ -148,6 +153,10 @@ func (a *App) Readiness(ctx context.Context) (model.ReadinessResponse, int) {
 		overall = "not_ready"
 	}
 	if dependencies["command_catalog"].Status != "ready" {
+		statusCode = http.StatusServiceUnavailable
+		overall = "not_ready"
+	}
+	if dependencies["sighting_catalog"].Status != "ready" {
 		statusCode = http.StatusServiceUnavailable
 		overall = "not_ready"
 	}

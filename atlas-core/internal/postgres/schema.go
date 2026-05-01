@@ -70,6 +70,7 @@ DECLARE
   existing_pkey_name text;
   existing_pkey_columns text[];
 BEGIN
+  LOCK TABLE object_files IN ACCESS EXCLUSIVE MODE;
   SELECT con.conname,
          ARRAY(
            SELECT att.attname

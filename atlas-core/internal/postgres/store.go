@@ -185,16 +185,16 @@ func (s *Store) DeleteObservation(ctx context.Context, id string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	paths, err := filePathsForOwner(ctx, tx, "observation", id)
-	if err != nil {
-		return err
-	}
 	result, err := tx.Exec(ctx, `DELETE FROM observations WHERE observation_id=$1`, id)
 	if err != nil {
 		return err
 	}
 	if result.RowsAffected() == 0 {
 		return model.NotFound("observation", id)
+	}
+	paths, err := deleteObjectFilesForOwner(ctx, tx, "observation", id)
+	if err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM objects WHERE owner_type='observation' AND owner_id=$1`, id); err != nil {
 		return err
@@ -276,7 +276,21 @@ func (s *Store) CountTaskOwnedObjects(ctx context.Context, taskID string) (int, 
 }
 
 func (s *Store) CreateObject(ctx context.Context, object model.Object) (model.Object, error) {
-	return object, s.execUpsert(ctx, `INSERT INTO objects (object_id, type, owner_type, owner_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, "object", object.ObjectID, object.ObjectID, object.Type, object.OwnerType, object.OwnerID, mustJSON(object.JSON), object.CreatedAt, object.UpdatedAt)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return model.Object{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := ensureObjectOwnerExists(ctx, tx, object.OwnerType, object.OwnerID); err != nil {
+		return model.Object{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO objects (object_id, type, owner_type, owner_id, json, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, object.ObjectID, object.Type, object.OwnerType, object.OwnerID, mustJSON(object.JSON), object.CreatedAt, object.UpdatedAt); err != nil {
+		return model.Object{}, mapPGError(err, "object", object.ObjectID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Object{}, err
+	}
+	return object, nil
 }
 
 func (s *Store) GetObject(ctx context.Context, id string) (model.Object, error) {
@@ -333,7 +347,7 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	paths, err := filePathsForObject(ctx, tx, id)
+	paths, err := deleteObjectFilesForObject(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -662,8 +676,29 @@ func ensureObjectExists(ctx context.Context, tx pgx.Tx, objectID string) error {
 	return nil
 }
 
-func filePathsForOwner(ctx context.Context, tx pgx.Tx, ownerType, ownerID string) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT of.path FROM object_files of JOIN objects o ON o.object_id = of.object_id WHERE o.owner_type=$1 AND o.owner_id=$2`, ownerType, ownerID)
+func ensureObjectOwnerExists(ctx context.Context, tx pgx.Tx, ownerType, ownerID string) error {
+	switch ownerType {
+	case "entity":
+		return ensureLockedOwnerExists(ctx, tx, `SELECT 1 FROM entities WHERE entity_id=$1 FOR KEY SHARE`, "entity", ownerID)
+	case "observation":
+		return ensureLockedOwnerExists(ctx, tx, `SELECT 1 FROM observations WHERE observation_id=$1 FOR KEY SHARE`, "observation", ownerID)
+	case "task":
+		return ensureLockedOwnerExists(ctx, tx, `SELECT 1 FROM tasks WHERE task_id=$1 FOR KEY SHARE`, "task", ownerID)
+	default:
+		return nil
+	}
+}
+
+func ensureLockedOwnerExists(ctx context.Context, tx pgx.Tx, query, resourceType, resourceID string) error {
+	var exists int
+	if err := tx.QueryRow(ctx, query, resourceID).Scan(&exists); err != nil {
+		return mapNotFound(err, resourceType, resourceID)
+	}
+	return nil
+}
+
+func deleteObjectFilesForOwner(ctx context.Context, tx pgx.Tx, ownerType, ownerID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `DELETE FROM object_files AS of USING objects AS o WHERE of.object_id = o.object_id AND o.owner_type=$1 AND o.owner_id=$2 RETURNING of.path`, ownerType, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -679,8 +714,8 @@ func filePathsForOwner(ctx context.Context, tx pgx.Tx, ownerType, ownerID string
 	return paths, rows.Err()
 }
 
-func filePathsForObject(ctx context.Context, tx pgx.Tx, objectID string) ([]string, error) {
-	rows, err := tx.Query(ctx, `SELECT path FROM object_files WHERE object_id=$1`, objectID)
+func deleteObjectFilesForObject(ctx context.Context, tx pgx.Tx, objectID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `DELETE FROM object_files WHERE object_id=$1 RETURNING path`, objectID)
 	if err != nil {
 		return nil, err
 	}
@@ -853,9 +888,34 @@ func mapPGError(err error, resourceType, resourceID string) error {
 		if resourceType == "" {
 			resourceType = "resource"
 		}
-		return model.Conflict(resourceType, resourceID, "already_exists", nil)
+		return model.Conflict(resourceType, resourceID, "already_exists", nil).WithCause(err)
+	}
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return mapForeignKeyViolation(resourceType, resourceID, pgErr).WithCause(err)
 	}
 	return err
+}
+
+func mapForeignKeyViolation(resourceType, resourceID string, pgErr *pgconn.PgError) *model.CoreError {
+	if resourceType == "" {
+		resourceType = "resource"
+	}
+	details := map[string]any{}
+	switch pgErr.ConstraintName {
+	case "observations_source_asset_id_fkey":
+		details["field"] = "source_asset_id"
+		details["referenced_resource_type"] = "entity"
+	case "tasks_asset_id_fkey":
+		details["field"] = "asset_id"
+		details["referenced_resource_type"] = "entity"
+	case "tasks_command_catalog_object_id_fkey":
+		details["field"] = "command_catalog_object_id"
+		details["referenced_resource_type"] = "object"
+	case "object_files_object_id_fkey":
+		details["field"] = "object_id"
+		details["referenced_resource_type"] = "object"
+	}
+	return model.Conflict(resourceType, resourceID, "invalid_reference", details)
 }
 
 func mapDeleteObjectError(err error, resourceID string) error {

@@ -197,7 +197,27 @@ func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, jerr)
 		return
 	}
-	input := service.EntityCreateInput{EntityID: readString(payload, "entity_id"), Type: readString(payload, "type"), Subtype: readString(payload, "subtype"), Alias: readString(payload, "alias"), JSON: jsonMap}
+	entityID, _, err := readString(raw, payload, "entity_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	entityType, _, err := readString(raw, payload, "type")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	subtype, _, err := readString(raw, payload, "subtype")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	alias, _, err := readString(raw, payload, "alias")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	input := service.EntityCreateInput{EntityID: entityID, Type: entityType, Subtype: subtype, Alias: alias, JSON: jsonMap}
 	entity, err := r.deps.Services.CreateEntity(req.Context(), input)
 	if err != nil {
 		r.writeError(w, req, err)
@@ -226,13 +246,17 @@ func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var subtype *string
-	if _, ok := payload["subtype"]; ok {
-		value := readString(payload, "subtype")
+	if value, ok, err := readString(raw, payload, "subtype"); err != nil {
+		r.writeError(w, req, err)
+		return
+	} else if ok {
 		subtype = &value
 	}
 	var alias *string
-	if _, ok := payload["alias"]; ok {
-		value := readString(payload, "alias")
+	if value, ok, err := readString(raw, payload, "alias"); err != nil {
+		r.writeError(w, req, err)
+		return
+	} else if ok {
 		alias = &value
 	}
 	jsonMap, jerr := readJSONMapField(raw, payload, "json")
@@ -314,7 +338,17 @@ func (r *Router) handleCreateObservation(w http.ResponseWriter, req *http.Reques
 		r.writeError(w, req, jerr)
 		return
 	}
-	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: readString(payload, "observation_id"), SourceAssetID: readString(payload, "source_asset_id"), JSON: jsonMap})
+	observationID, _, err := readString(raw, payload, "observation_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	sourceAssetID, _, err := readString(raw, payload, "source_asset_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: observationID, SourceAssetID: sourceAssetID, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -395,7 +429,17 @@ func (r *Router) handleCreateTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, jerr)
 		return
 	}
-	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: readString(payload, "task_id"), AssetID: readString(payload, "asset_id"), JSON: jsonMap})
+	taskID, _, err := readString(raw, payload, "task_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	assetID, _, err := readString(raw, payload, "asset_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: taskID, AssetID: assetID, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -458,7 +502,12 @@ func (r *Router) handleTaskStatus(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, jerr)
 		return
 	}
-	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: readString(payload, "status"), JSON: jsonMap})
+	status, _, err := readString(raw, payload, "status")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: status, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -503,7 +552,27 @@ func (r *Router) handleCreateObject(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, jerr)
 		return
 	}
-	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: readString(payload, "object_id"), Type: readString(payload, "type"), OwnerType: readString(payload, "owner_type"), OwnerID: readString(payload, "owner_id"), JSON: jsonMap})
+	objectID, _, err := readString(raw, payload, "object_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	objectType, _, err := readString(raw, payload, "type")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	ownerType, _, err := readString(raw, payload, "owner_type")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	ownerID, _, err := readString(raw, payload, "owner_id")
+	if err != nil {
+		r.writeError(w, req, err)
+		return
+	}
+	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: objectID, Type: objectType, OwnerType: ownerType, OwnerID: ownerID, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -531,8 +600,10 @@ func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var objectType *string
-	if _, ok := payload["type"]; ok {
-		value := readString(payload, "type")
+	if value, ok, err := readString(raw, payload, "type"); err != nil {
+		r.writeError(w, req, err)
+		return
+	} else if ok {
 		objectType = &value
 	}
 	jsonMap, jerr := readJSONMapField(raw, payload, "json")
@@ -811,6 +882,8 @@ func (r *Router) handleStream(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
 	ch, cancel := r.deps.Events.Subscribe()
 	defer cancel()
 	keepAlive := time.NewTicker(15 * time.Second)
@@ -863,9 +936,23 @@ func decodeJSON(body io.Reader) (map[string]any, map[string]json.RawMessage, err
 	return payload, raw, nil
 }
 
-func readString(payload map[string]any, key string) string {
-	value, _ := payload[key].(string)
-	return value
+func readString(raw map[string]json.RawMessage, payload map[string]any, key string) (string, bool, error) {
+	rm, inRaw := raw[key]
+	if !inRaw {
+		return "", false, nil
+	}
+	if string(bytes.TrimSpace(rm)) == "null" {
+		return "", true, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a string"})
+	}
+	value, ok := payload[key]
+	if !ok {
+		return "", false, nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return "", true, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a string"})
+	}
+	return text, true, nil
 }
 
 // uploadErrorRetainsPreStagedPath is true when the store left PreStagedPath on
