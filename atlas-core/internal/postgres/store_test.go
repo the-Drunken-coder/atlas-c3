@@ -132,10 +132,10 @@ func TestMapDeleteObjectErrorForeignKeyViolationBecomesConflict(t *testing.T) {
 	if reason, _ := coreErr.Details["reason"].(string); reason != "referenced" {
 		t.Fatalf("unexpected conflict reason: %#v", coreErr.Details)
 	}
-	if dependentType, _ := coreErr.Details["dependent_resource_type"].(string); dependentType != "task" {
+	if gotDependentType, _ := coreErr.Details["dependent_resource_type"].(string); gotDependentType != "task" {
 		t.Fatalf("unexpected conflict details: %#v", coreErr.Details)
 	}
-	if _, leaked := coreErr.Details["constraint"]; leaked {
+	if _, constraintPresent := coreErr.Details["constraint"]; constraintPresent {
 		t.Fatalf("unexpected raw constraint leak: %#v", coreErr.Details)
 	}
 	if coreErr.Cause() != pgErr {
