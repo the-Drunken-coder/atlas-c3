@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import unittest
@@ -90,6 +91,20 @@ class HarnessRunnerTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 module.ensure_track()
         self.assertEqual(ctx.exception.code, 500)
+
+    def test_main_logs_unicode_decode_failures(self) -> None:
+        """Treat response text decode failures like other per-tick transport errors."""
+        module = load_module("http://atlas-core:8080")
+        with (
+            mock.patch.object(module, "request", side_effect=UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")),
+            mock.patch.object(module.time, "sleep", side_effect=StopIteration),
+            mock.patch("builtins.print") as print_mock,
+        ):
+            with self.assertRaises(StopIteration):
+                module.main()
+        payload = json.loads(print_mock.call_args.args[0])
+        self.assertEqual(payload["event"], "fusion.error")
+        self.assertIn("invalid start byte", payload["message"])
 
 
 if __name__ == "__main__":

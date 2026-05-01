@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.request
@@ -34,6 +35,65 @@ def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         The completed :class:`subprocess.CompletedProcess` with text I/O.
     """
     return subprocess.run(args, cwd=ROOT, check=check, text=True, capture_output=True)
+
+
+def parse_host_port(raw_port: str) -> int:
+    """Validate a host port string and return it as an integer.
+
+    Raises:
+        SystemExit: If ``raw_port`` is not a valid TCP port number.
+    """
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise SystemExit(f"ATLAS_CORE_HOST_PORT must be a number, got {raw_port!r}") from exc
+    if not (1 <= port <= 65535):
+        raise SystemExit(f"ATLAS_CORE_HOST_PORT must be 1-65535, got {port}")
+    return port
+
+
+def dotenv_host_port() -> str | None:
+    """Read the raw ``ATLAS_CORE_HOST_PORT`` value from ``ROOT/.env`` when present."""
+    env_path = ROOT / ".env"
+    if not env_path.is_file():
+        return None
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "ATLAS_CORE_HOST_PORT":
+            return value.strip().strip("\"'")
+    return None
+
+
+def resolved_compose_host_port() -> int | None:
+    """Return the published Atlas Core host port reported by Docker Compose."""
+    result = run("docker", "compose", "-p", PROJECT, "port", "atlas-core", "8080", check=False)
+    if result.returncode != 0:
+        return None
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = re.search(r":(\d+)$", line)
+        if match:
+            return parse_host_port(match.group(1))
+    return None
+
+
+def readiness_host_port() -> int:
+    """Resolve the host port used for readiness polling."""
+    compose_port = resolved_compose_host_port()
+    if compose_port is not None:
+        return compose_port
+    raw_port = (os.environ.get("ATLAS_CORE_HOST_PORT") or "").strip()
+    if raw_port:
+        return parse_host_port(raw_port)
+    dotenv_port = dotenv_host_port()
+    if dotenv_port:
+        return parse_host_port(dotenv_port)
+    return 8080
 
 
 def compose_up(enable_fusion: bool) -> None:
@@ -63,13 +123,7 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
     Args:
         timeout_seconds: Total wall-clock budget for the readiness probe.
     """
-    raw_port = os.environ.get('ATLAS_CORE_HOST_PORT', '8080')
-    try:
-        port = int(raw_port)
-    except ValueError:
-        raise SystemExit(f"ATLAS_CORE_HOST_PORT must be a number, got {raw_port!r}")
-    if not (1 <= port <= 65535):
-        raise SystemExit(f"ATLAS_CORE_HOST_PORT must be 1-65535, got {port}")
+    port = readiness_host_port()
     url = f"http://localhost:{port}/readiness"
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:

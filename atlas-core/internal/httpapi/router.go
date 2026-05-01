@@ -666,7 +666,7 @@ func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request
 					r.writeError(w, req, r.mapMultipartReadError(copyErr))
 					return
 				}
-				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field"}))
+				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field except usage_hint and content_type"}))
 				return
 			}
 			_, _ = io.Copy(io.Discard, part)

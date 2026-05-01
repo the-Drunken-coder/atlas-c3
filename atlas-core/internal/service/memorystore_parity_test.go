@@ -13,6 +13,19 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
 
+func writeMemoryStoreStagedFile(t *testing.T, root, objectID string, payload []byte) string {
+	t.Helper()
+	stagedDir := filepath.Join(root, "staging", objectID)
+	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+		t.Fatalf("mkdir staged dir: %v", err)
+	}
+	staged := filepath.Join(stagedDir, "staged.bin")
+	if err := os.WriteFile(staged, payload, 0o600); err != nil {
+		t.Fatalf("write staged: %v", err)
+	}
+	return staged
+}
+
 // Issue #2: MemoryStore.ListObservations must include rows whose UpdatedAt is
 // exactly equal to the UpdatedAfter cutoff, matching Postgres' `>=` semantics.
 func TestMemoryStoreListObservationsUpdatedAfterIsInclusive(t *testing.T) {
@@ -106,10 +119,7 @@ func TestMemoryStoreCreateObjectFileRemovesPreStagedOnError(t *testing.T) {
 	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
 
 	dir := t.TempDir()
-	staged := filepath.Join(dir, "staged.bin")
-	if err := os.WriteFile(staged, []byte("hello"), 0o600); err != nil {
-		t.Fatalf("write staged: %v", err)
-	}
+	staged := writeMemoryStoreStagedFile(t, dir, "obj-1", []byte("hello"))
 
 	// Lie about the size — implementation must reject AND remove the path.
 	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
@@ -133,11 +143,8 @@ func TestMemoryStoreCreateObjectFileRemovesPreStagedOnSuccess(t *testing.T) {
 	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
 
 	dir := t.TempDir()
-	staged := filepath.Join(dir, "staged.bin")
 	payload := []byte("hello-world")
-	if err := os.WriteFile(staged, payload, 0o600); err != nil {
-		t.Fatalf("write staged: %v", err)
-	}
+	staged := writeMemoryStoreStagedFile(t, dir, "obj-1", payload)
 
 	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
 		File:               model.ObjectFile{ObjectID: "obj-1", FileID: "f1"},
@@ -149,6 +156,35 @@ func TestMemoryStoreCreateObjectFileRemovesPreStagedOnSuccess(t *testing.T) {
 	}
 	if _, statErr := os.Stat(staged); !os.IsNotExist(statErr) {
 		t.Fatalf("expected staged file to be removed on success, stat err=%v", statErr)
+	}
+}
+
+func TestMemoryStoreCreateObjectFileRejectsPreStagedOutsideStagingWithoutDeletingIt(t *testing.T) {
+	ctx := context.Background()
+	mem := servicetest.NewMemoryStore()
+	mem.Objects["obj-1"] = model.Object{ObjectID: "obj-1"}
+
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "staged.bin")
+	payload := []byte("hello")
+	if err := os.WriteFile(staged, payload, 0o600); err != nil {
+		t.Fatalf("write staged: %v", err)
+	}
+
+	_, err := mem.CreateObjectFile(ctx, store.ObjectUploadInput{
+		File:               model.ObjectFile{ObjectID: "obj-1", FileID: "f1"},
+		PreStagedPath:      staged,
+		PreStagedSizeBytes: int64(len(payload)),
+	})
+	if err == nil {
+		t.Fatal("expected validation error for path outside staging")
+	}
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "validation_failed" {
+		t.Fatalf("expected validation_failed, got %v", err)
+	}
+	if _, statErr := os.Stat(staged); statErr != nil {
+		t.Fatalf("expected rejected staged file to remain for caller cleanup, stat err=%v", statErr)
 	}
 }
 

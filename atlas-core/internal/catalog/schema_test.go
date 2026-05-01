@@ -166,3 +166,15 @@ func TestValidateSchemaRejectsLossyFloatConstraint(t *testing.T) {
 	}
 	assertHasFieldError(t, err, "schema.minimum", "invalid_value")
 }
+
+func TestValidateSchemaRejectsNegativeIntegerBounds(t *testing.T) {
+	for _, key := range []string{"minItems", "maxItems", "minLength", "maxLength"} {
+		t.Run(key, func(t *testing.T) {
+			err := ValidateSchema(map[string]any{"type": "string", key: -1}, "schema")
+			if err == nil {
+				t.Fatalf("expected %s to reject negative values", key)
+			}
+			assertHasFieldError(t, err, "schema."+key, "invalid_value")
+		})
+	}
+}

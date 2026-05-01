@@ -111,6 +111,14 @@ func isJSONIntegerKeyword(v any) bool {
 	}
 }
 
+func isNonNegativeJSONIntegerKeyword(v any) bool {
+	if !isJSONIntegerKeyword(v) {
+		return false
+	}
+	value, ok := numberToInt64(v)
+	return ok && value >= 0
+}
+
 func isJSONNumberKeyword(v any) bool {
 	switch v.(type) {
 	case int, int64, float64:
@@ -136,8 +144,13 @@ func appendSchemaKeywordValueErrors(schema map[string]any, path string, fields *
 		}
 	}
 	for _, key := range []string{"minItems", "maxItems", "minLength", "maxLength"} {
-		if v, ok := schema[key]; ok && !isJSONIntegerKeyword(v) {
-			*fields = append(*fields, model.FieldError{Field: path + "." + key, Code: "invalid_type", Message: key + " must be an integer"})
+		if v, ok := schema[key]; ok {
+			switch {
+			case !isJSONIntegerKeyword(v):
+				*fields = append(*fields, model.FieldError{Field: path + "." + key, Code: "invalid_type", Message: key + " must be an integer"})
+			case !isNonNegativeJSONIntegerKeyword(v):
+				*fields = append(*fields, model.FieldError{Field: path + "." + key, Code: "invalid_value", Message: key + " must be greater than or equal to 0"})
+			}
 		}
 	}
 	if v, ok := schema["additionalProperties"]; ok {

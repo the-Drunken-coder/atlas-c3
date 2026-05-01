@@ -344,13 +344,6 @@ func (m *MemoryStore) DeleteObject(_ context.Context, id string) error {
 	return nil
 }
 func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {
-	// Honour the ObjectUploadInput contract: when a PreStagedPath is provided,
-	// implementations must remove it on both success and error paths (the only
-	// exception being a post-commit byte-promotion failure, which the in-memory
-	// store does not have). A defer is the cleanest way to guarantee that.
-	if input.PreStagedPath != "" {
-		defer func() { _ = objectfiles.CleanupStagedPath(input.PreStagedPath, stagingDirForPath(input.PreStagedPath)) }()
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.Objects[input.File.ObjectID]; !ok {
@@ -387,13 +380,12 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 		if lerr != nil {
 			return model.ObjectFile{}, lerr
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
+		resolvedPath, info, lerr := validatePreStagedPath(input.PreStagedPath, info)
+		if lerr != nil {
+			return model.ObjectFile{}, lerr
 		}
-		if !info.Mode().IsRegular() {
-			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
-		}
-		f, openErr := os.Open(input.PreStagedPath)
+		defer func() { _ = objectfiles.CleanupStagedPath(resolvedPath, stagingDirForPath(resolvedPath)) }()
+		f, openErr := os.Open(resolvedPath)
 		if openErr != nil {
 			return model.ObjectFile{}, openErr
 		}
@@ -565,6 +557,55 @@ func stagingDirForPath(path string) string {
 		}
 	}
 	return ""
+}
+
+func validatePreStagedPath(preStagedPath string, info os.FileInfo) (string, os.FileInfo, error) {
+	absPath, absErr := filepath.Abs(preStagedPath)
+	if absErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	stagingDir := stagingDirForPath(absPath)
+	if stagingDir == "" {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+	}
+	absStaging, stagingAbsErr := filepath.Abs(stagingDir)
+	if stagingAbsErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	resolvedStaging, resolveStagingErr := filepath.EvalSymlinks(absStaging)
+	if resolveStagingErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+	}
+	resolvedParent, resolveParentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if resolveParentErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	resolvedPath := filepath.Join(resolvedParent, filepath.Base(absPath))
+	withinStaging, relErr := pathWithinDir(resolvedStaging, resolvedPath)
+	if relErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	if !withinStaging {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+	}
+	return resolvedPath, info, nil
+}
+
+func pathWithinDir(dir, path string) (bool, error) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func values[T any](input map[string]T) []T {
