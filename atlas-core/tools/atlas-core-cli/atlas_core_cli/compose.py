@@ -59,7 +59,7 @@ def dotenv_host_port() -> str | None:
             continue
         key, sep, value = line.partition("=")
         if sep and key.strip() == "ATLAS_CORE_HOST_PORT":
-            return value.strip().strip(`"'`)
+            return value.strip().strip("\"'")
     return None
 
 
