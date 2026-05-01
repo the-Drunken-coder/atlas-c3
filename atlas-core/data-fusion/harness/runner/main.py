@@ -102,9 +102,9 @@ def main() -> None:
 
     Each iteration performs a full-query GET, ensures the baseline track,
     and emits a single JSON line describing the outcome. Network, HTTP,
-    OS, and JSON decode failures are caught per-tick and logged as
-    ``fusion.error`` events; other exceptions still propagate. The loop
-    sleeps 10 seconds between ticks regardless of success.
+    request-timeout, and JSON decode failures are caught per-tick and
+    logged as ``fusion.error`` events; other exceptions still propagate.
+    The loop sleeps 10 seconds between ticks regardless of success.
     """
     while True:
         try:
@@ -112,7 +112,15 @@ def main() -> None:
             created = ensure_track()
             message = "baseline stack created track" if created else "baseline stack verified track"
             print(json.dumps({"service": "atlas-data-fusion", "event": "fusion.tick", "message": message}))
-        except (urllib.error.URLError, http.client.HTTPException, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            # Keep genuine request timeouts in the per-tick error path, but let
+            # unrelated local OSErrors still propagate.
+            TimeoutError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as exc:
             print(json.dumps({"service": "atlas-data-fusion", "event": "fusion.error", "message": str(exc)}))
         time.sleep(10)
 

@@ -124,6 +124,28 @@ func TestLogicalPathRejectsUnsafeIDs(t *testing.T) {
 	}
 }
 
+func TestValidateObjectFilePathSegmentsUsesStandardIDRules(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		objectID string
+		fileID   string
+	}{
+		{name: "leading space", objectID: " object-1", fileID: "file-1"},
+		{name: "trailing space", objectID: "object-1", fileID: "file-1 "},
+		{name: "dot dot", objectID: "object-1", fileID: ".."},
+		{name: "too long", objectID: strings.Repeat("o", 51), fileID: "file-1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidateObjectFilePathSegments(test.objectID, test.fileID); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestAppendIOCopyErrorTruncates(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(dir)

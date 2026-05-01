@@ -153,6 +153,20 @@ func TestDeleteEntityRejectsDependents(t *testing.T) {
 	}
 }
 
+func TestDeleteObjectRejectsTaskCatalogReferences(t *testing.T) {
+	svc, stores, _ := setupServices(t)
+	stores.Objects["catalog-1"] = model.Object{ObjectID: "catalog-1", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}}
+	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", AssetID: "asset-1", CommandCatalogObjectID: "catalog-1"}
+	err := svc.DeleteObject(context.Background(), "catalog-1")
+	if err == nil {
+		t.Fatal("expected conflict")
+	}
+	coreErr, ok := model.IsCoreError(err)
+	if !ok || coreErr.ErrorCode != "conflict" {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+}
+
 func TestTransitionTaskStatusIdempotent(t *testing.T) {
 	svc, stores, catalogID := setupServices(t)
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: catalogID, JSON: model.JSONMap{"components": map[string]any{"command": map[string]any{"type": "move_to_location"}, "parameters": map[string]any{"latitude": 1.0}}}}

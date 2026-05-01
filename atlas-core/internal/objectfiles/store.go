@@ -68,22 +68,18 @@ func (s *Store) Verify() error {
 	return nil
 }
 
-// ValidateObjectFilePathSegments rejects empty IDs and characters that would
-// escape a single directory segment under objects/.
+// ValidateObjectFilePathSegments applies the same object/file ID rules used by
+// the API/DB layers before deriving a path under objects/.
 func ValidateObjectFilePathSegments(objectID, fileID string) error {
 	for _, pair := range []struct {
 		value string
 		field string
-	}{{objectID, "object_id"}, {fileID, "file_id"}} {
-		id := strings.TrimSpace(pair.value)
-		if id == "" {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "required", Message: "value is required"})
-		}
-		if id == "." || id == ".." {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
-		}
-		if strings.ContainsAny(id, `/\`) {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "id must not contain path separators"})
+	}{
+		{value: objectID, field: "object_id"},
+		{value: fileID, field: "file_id"},
+	} {
+		if err := model.ValidateID(pair.field, pair.value); err != nil {
+			return model.ValidationError(*err)
 		}
 	}
 	return nil

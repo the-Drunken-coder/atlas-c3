@@ -113,7 +113,7 @@ def compose_up(enable_fusion: bool) -> None:
     subprocess.run(command, cwd=ROOT, check=True)
 
 
-def wait_for_readiness(timeout_seconds: int = 120) -> None:
+def wait_for_readiness(timeout_seconds: float = 120) -> None:
     """Poll the Atlas Core readiness endpoint until it reports ``ready``.
 
     Each ``urlopen`` call is bounded by the remaining time budget so a hung
@@ -121,23 +121,34 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
     Raises :class:`SystemExit` if the service is not ready in time.
 
     Args:
-        timeout_seconds: Total wall-clock budget for the readiness probe.
+        timeout_seconds: Total wall-clock budget in seconds for the readiness probe.
     """
     port = readiness_host_port()
     url = f"http://localhost:{port}/readiness"
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        attempt_timeout = max(1.0, deadline - time.time())
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        attempt_timeout = remaining
         try:
             with urllib.request.urlopen(url, timeout=attempt_timeout) as response:
                 payload = json.load(response)
                 if response.status == 200 and payload.get("status") == "ready":
                     print("Atlas Core is ready.")
                     return
-        except Exception:
-            pass
-        time.sleep(2)
-    raise SystemExit("Atlas Core did not become ready in time.")
+                last_error = f"HTTP {response.status} status={payload.get('status')!r}"
+        except Exception as exc:
+            last_error = str(exc)
+        remaining = deadline - time.monotonic()
+        sleep_seconds = min(2.0, max(0.0, remaining))
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
+    message = "Atlas Core did not become ready in time."
+    if last_error:
+        message += f" Last error: {last_error}"
+    raise SystemExit(message)
 
 
 def destructive_cleanup() -> None:
@@ -150,11 +161,11 @@ def destructive_cleanup() -> None:
     print("Removing Atlas Core project resources...")
     for resource, args in [
         ("container", ["docker", "ps", "-a", "--filter", f"label={LABEL}", "--format", "{{.ID}}"]),
-        ("image", ["docker", "images", "--filter", f"label={LABEL}", "--format", "{{.ID}}"]) ,
-        ("volume", ["docker", "volume", "ls", "--filter", f"label={LABEL}", "--format", "{{.Name}}"]) ,
+        ("image", ["docker", "images", "--filter", f"label={LABEL}", "--format", "{{.ID}}"]),
+        ("volume", ["docker", "volume", "ls", "--filter", f"label={LABEL}", "--format", "{{.Name}}"]),
     ]:
         result = run(*args)
-        ids = [line for line in result.stdout.splitlines() if line.strip()]
+        ids = sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
         for item in ids:
             if resource == "container":
                 subprocess.run(["docker", "rm", "-f", item], check=True)

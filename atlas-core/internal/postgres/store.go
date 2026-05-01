@@ -339,7 +339,7 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 	}
 	result, err := tx.Exec(ctx, `DELETE FROM objects WHERE object_id=$1`, id)
 	if err != nil {
-		return err
+		return mapDeleteObjectError(err, id)
 	}
 	if result.RowsAffected() == 0 {
 		return model.NotFound("object", id)
@@ -856,6 +856,26 @@ func mapPGError(err error, resourceType, resourceID string) error {
 		return model.Conflict(resourceType, resourceID, "already_exists", nil)
 	}
 	return err
+}
+
+func mapDeleteObjectError(err error, resourceID string) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return model.Conflict("object", resourceID, "referenced", deleteObjectConflictDetails(pgErr.ConstraintName)).WithCause(err)
+	}
+	return err
+}
+
+func deleteObjectConflictDetails(constraintName string) map[string]any {
+	switch constraintName {
+	case "tasks_command_catalog_object_id_fkey":
+		return map[string]any{"dependent_resource_type": "task"}
+	default:
+		return nil
+	}
 }
 
 // defaultUploadLimitBytes matches servicetest.memUploadLimit when no per-request cap is set.
