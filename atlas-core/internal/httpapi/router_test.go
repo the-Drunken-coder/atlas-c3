@@ -447,6 +447,14 @@ func TestObjectFileUploadRejectsMultipleTrailingParts(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
+	var envelope model.ErrorEnvelope
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	fields, _ := envelope.Details["fields"].([]any)
+	if len(fields) == 0 || !strings.Contains(rr.Body.String(), "except usage_hint and content_type") {
+		t.Fatalf("expected trailing-parts error message to mention allowed metadata fields, got %s", rr.Body.String())
+	}
 	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected staged file to be removed when extra parts are present")
 	}

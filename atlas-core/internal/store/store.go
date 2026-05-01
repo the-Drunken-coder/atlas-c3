@@ -75,14 +75,16 @@ type ObjectUploadInput struct {
 	Reader   io.Reader
 	MaxBytes int64
 	// PreStagedPath, when non-empty, skips Stage: bytes are taken from this
-	// path (Promote renames it into object storage on success). Implementations
-	// attempt to remove the path after CreateObjectFile returns, on both success
-	// and error paths. The only exception is a post-commit byte-promotion
-	// failure (returned as StorageUnavailable with the retained path carried in
-	// the internal cause for server-side recovery), where the staged file is
-	// intentionally retained so an operator can recover the bytes. Callers must
-	// not delete or reuse the path after CreateObjectFile returns and must not
-	// touch it concurrently during the call.
+	// path instead. Implementations validate the path before taking ownership.
+	// Once accepted, success consumes the file (typically by renaming it into
+	// object storage) and normal errors remove it before returning. The only
+	// exception is a post-commit byte-promotion failure (returned as
+	// StorageUnavailable with the retained path carried in the internal cause),
+	// where the staged file is intentionally retained for server-side recovery.
+	// If validation rejects the path before ownership is accepted, the caller
+	// still owns cleanup. Callers must not delete or reuse an accepted path
+	// after CreateObjectFile returns and must not touch it concurrently during
+	// the call.
 	PreStagedPath        string
 	PreStagedSizeBytes   int64
 	PreStagedContentType string

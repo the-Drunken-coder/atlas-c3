@@ -98,3 +98,24 @@ func TestCreateObjectFileRejectsPreStagedPathOutsideStagingViaSymlinkedParent(t 
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }
+
+func TestEnsureSchemaDropsUpdatedAtIndexBeforeRecreatingIt(t *testing.T) {
+	var dropIndex, createIndex int
+	for i, stmt := range schemaStatements {
+		switch stmt {
+		case `DROP INDEX IF EXISTS object_files_updated_at_idx`:
+			dropIndex = i + 1
+		case `CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, object_id ASC, file_id ASC)`:
+			createIndex = i + 1
+		}
+	}
+	if dropIndex == 0 {
+		t.Fatal("expected schema to drop object_files_updated_at_idx before recreating it")
+	}
+	if createIndex == 0 {
+		t.Fatal("expected schema to recreate object_files_updated_at_idx")
+	}
+	if dropIndex >= createIndex {
+		t.Fatalf("expected drop (%d) before create (%d)", dropIndex, createIndex)
+	}
+}

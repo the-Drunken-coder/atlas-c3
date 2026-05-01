@@ -93,6 +93,7 @@ BEGIN
   END IF;
 END $$`,
 	`DROP INDEX IF EXISTS object_files_object_idx`,
+	`DROP INDEX IF EXISTS object_files_updated_at_idx`,
 	`CREATE INDEX IF NOT EXISTS object_files_updated_at_idx ON object_files(updated_at DESC, object_id ASC, file_id ASC)`,
 }
 
