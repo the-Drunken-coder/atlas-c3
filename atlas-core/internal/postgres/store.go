@@ -23,6 +23,16 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
 
+type retainedStagedPathError struct {
+	path string
+}
+
+func (e retainedStagedPathError) Error() string { return "retained staged path: " + e.path }
+
+func (e retainedStagedPathError) RetainedStagedPath() string {
+	return e.path
+}
+
 type Store struct {
 	pool      *pgxpool.Pool
 	files     *objectfiles.Store
@@ -374,7 +384,7 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 	removeStaged := true
 	defer func() {
 		if removeStaged && stagedPath != "" {
-			_ = os.Remove(stagedPath)
+			_ = objectfiles.CleanupStagedPath(stagedPath, s.files.StagingDir())
 		}
 	}()
 
@@ -446,10 +456,9 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 		removeStaged = false
 		s.files.MarkMismatch("object file metadata committed but byte promotion failed")
 		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{
-			"object_id":   file.ObjectID,
-			"file_id":     file.FileID,
-			"staged_path": stagedPath,
-		})
+			"object_id": file.ObjectID,
+			"file_id":   file.FileID,
+		}).WithCause(retainedStagedPathError{path: stagedPath})
 	}
 	removeStaged = false
 	return file, nil

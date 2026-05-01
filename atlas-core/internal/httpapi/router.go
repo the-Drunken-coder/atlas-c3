@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -591,13 +590,17 @@ func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request
 	}
 	objectID := req.PathValue("object_id")
 	fileID := req.PathValue("file_id")
+	if err := validateUploadPathIDs(objectID, fileID); err != nil {
+		r.writeError(w, req, err)
+		return
+	}
 	var usageHint, contentTypeOverride string
 	var fileHeaderContentType string
 	var stagedPath, detectedType string
 	var size int64
 	cleanupStage := func() {
 		if stagedPath != "" {
-			_ = os.Remove(stagedPath)
+			_ = objectfiles.CleanupStagedPath(stagedPath, r.deps.Files.StagingDir())
 		}
 	}
 	for {
@@ -740,7 +743,10 @@ func filePartContentType(partHeaderContentType, formOverride string) (string, er
 		}
 		return normalized, nil
 	}
-	normalized, _ := mediatype.NormalizeContentType(partHeaderContentType)
+	normalized, valid := mediatype.NormalizeContentType(partHeaderContentType)
+	if !valid || strings.TrimSpace(partHeaderContentType) == "" {
+		return "", nil
+	}
 	return normalized, nil
 }
 
@@ -870,10 +876,17 @@ func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
 		return false
 	}
 	ce, ok := model.IsCoreError(err)
-	if !ok || ce.ErrorCode != "storage_unavailable" || ce.Details == nil {
+	if !ok || ce.ErrorCode != "storage_unavailable" {
 		return false
 	}
-	sp, _ := ce.Details["staged_path"].(string)
+	sp := retainedStagedPath(ce)
+	if ce.Details != nil {
+		// Legacy fallback for older storage_unavailable errors that still carried
+		// the retained path in serialized details instead of the internal cause.
+		if detailPath, _ := ce.Details["staged_path"].(string); detailPath != "" {
+			sp = detailPath
+		}
+	}
 	return sp != "" && canonicalizeStagedPathForCompare(sp) == canonicalizeStagedPathForCompare(stagedPath)
 }
 
@@ -900,6 +913,17 @@ func canonicalizeStagedPathForCompare(path string) string {
 	return filepath.Clean(filepath.Join(resolvedParent, filepath.Base(absPath)))
 }
 
+func retainedStagedPath(err *model.CoreError) string {
+	if err == nil || err.Cause() == nil {
+		return ""
+	}
+	carrier, ok := err.Cause().(interface{ RetainedStagedPath() string })
+	if !ok {
+		return ""
+	}
+	return carrier.RetainedStagedPath()
+}
+
 // readJSONMapField extracts a JSON object field from a decoded request body.
 // It distinguishes three cases:
 //   - Key omitted entirely → returns (nil, nil). Callers should treat nil as
@@ -916,7 +940,7 @@ func readJSONMapField(raw map[string]json.RawMessage, payload map[string]any, ke
 		return nil, nil
 	}
 	if string(bytes.TrimSpace(rm)) == "null" {
-		return model.JSONMap{}, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
+		return nil, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
 	}
 	v, ok := payload[key]
 	if !ok || v == nil {
@@ -928,8 +952,22 @@ func readJSONMapField(raw map[string]json.RawMessage, payload map[string]any, ke
 	case model.JSONMap:
 		return x, nil
 	default:
-		return model.JSONMap{}, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
+		return nil, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
 	}
+}
+
+func validateUploadPathIDs(objectID, fileID string) error {
+	fields := []model.FieldError{}
+	if err := model.ValidateID("object_id", objectID); err != nil {
+		fields = append(fields, *err)
+	}
+	if err := model.ValidateID("file_id", fileID); err != nil {
+		fields = append(fields, *err)
+	}
+	if len(fields) > 0 {
+		return model.ValidationError(fields...)
+	}
+	return nil
 }
 
 func rejectUnknownQuery(req *http.Request, allowed ...string) error {

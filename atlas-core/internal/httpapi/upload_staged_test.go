@@ -2,21 +2,44 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 )
 
+type retainedStagedPathCarrier struct {
+	path string
+}
+
+func (e retainedStagedPathCarrier) Error() string { return e.path }
+func (e retainedStagedPathCarrier) RetainedStagedPath() string {
+	return e.path
+}
+
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" || errors.Is(err, fs.ErrPermission) {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		t.Fatalf("symlink: %v", err)
+	}
+}
+
 func TestUploadErrorRetainsPreStagedPath(t *testing.T) {
 	staged := "/tmp/staged-xyz"
 	t.Run("retained on promote failure", func(t *testing.T) {
 		err := model.StorageUnavailable("object storage mismatch detected", map[string]any{
-			"object_id":   "o1",
-			"file_id":     "f1",
-			"staged_path": staged,
-		})
+			"object_id": "o1",
+			"file_id":   "f1",
+		}).WithCause(retainedStagedPathCarrier{path: staged})
 		if !uploadErrorRetainsPreStagedPath(err, staged) {
 			t.Fatal("expected true")
 		}
@@ -40,12 +63,10 @@ func TestUploadErrorRetainsPreStagedPath(t *testing.T) {
 			t.Fatalf("mkdir real: %v", err)
 		}
 		linkDir := filepath.Join(dir, "link")
-		if err := os.Symlink(realDir, linkDir); err != nil {
-			t.Fatalf("symlink: %v", err)
-		}
+		symlinkOrSkip(t, realDir, linkDir)
 		linkedPath := filepath.Join(linkDir, "staged.bin")
 		resolvedPath := filepath.Join(realDir, "staged.bin")
-		err := model.StorageUnavailable("x", map[string]any{"staged_path": resolvedPath})
+		err := model.StorageUnavailable("x", map[string]any{}).WithCause(retainedStagedPathCarrier{path: resolvedPath})
 		if !uploadErrorRetainsPreStagedPath(err, linkedPath) {
 			t.Fatalf("expected true for %q vs %q", linkedPath, resolvedPath)
 		}
@@ -56,6 +77,28 @@ func TestUploadErrorRetainsPreStagedPath(t *testing.T) {
 			t.Fatal("expected false")
 		}
 	})
+}
+
+func TestWriteErrorDoesNotExposeRetainedStagedPath(t *testing.T) {
+	router := &Router{}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", nil)
+	rr := httptest.NewRecorder()
+	router.writeError(rr, req, model.StorageUnavailable("object storage mismatch detected", map[string]any{
+		"object_id": "obj-1",
+		"file_id":   "f1",
+	}).WithCause(retainedStagedPathCarrier{path: "/tmp/secret/staged.bin"}))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status: %d", rr.Code)
+	}
+	var envelope model.ErrorEnvelope
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if envelope.Details != nil {
+		if _, exists := envelope.Details["staged_path"]; exists {
+			t.Fatalf("unexpected staged_path leak: %#v", envelope.Details)
+		}
+	}
 }
 
 func TestReadJSONMapFieldExplicitNullVsAbsent(t *testing.T) {
@@ -71,9 +114,12 @@ func TestReadJSONMapFieldExplicitNullVsAbsent(t *testing.T) {
 	t.Run("explicit null is validation error", func(t *testing.T) {
 		raw := map[string]json.RawMessage{"json": json.RawMessage(`null`)}
 		payload := map[string]any{"json": nil}
-		_, err := readJSONMapField(raw, payload, "json")
+		m, err := readJSONMapField(raw, payload, "json")
 		if err == nil {
 			t.Fatal("expected validation error")
+		}
+		if m != nil {
+			t.Fatalf("expected nil map on error, got %#v", m)
 		}
 		ce, ok := model.IsCoreError(err)
 		if !ok || ce.ErrorCode != "validation_failed" {
