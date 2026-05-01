@@ -125,19 +125,29 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
     """
     port = readiness_host_port()
     url = f"http://localhost:{port}/readiness"
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        attempt_timeout = max(1.0, deadline - time.time())
+    deadline = time.monotonic() + timeout_seconds
+    last_error = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        attempt_timeout = max(1.0, remaining)
         try:
             with urllib.request.urlopen(url, timeout=attempt_timeout) as response:
                 payload = json.load(response)
                 if response.status == 200 and payload.get("status") == "ready":
                     print("Atlas Core is ready.")
                     return
-        except Exception:
-            pass
-        time.sleep(2)
-    raise SystemExit("Atlas Core did not become ready in time.")
+                last_error = f"HTTP {response.status} status={payload.get('status')!r}"
+        except Exception as exc:
+            last_error = str(exc)
+        sleep_seconds = min(2.0, max(0.0, deadline - time.monotonic()))
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
+    message = "Atlas Core did not become ready in time."
+    if last_error:
+        message += f" Last error: {last_error}"
+    raise SystemExit(message)
 
 
 def destructive_cleanup() -> None:
@@ -154,7 +164,7 @@ def destructive_cleanup() -> None:
         ("volume", ["docker", "volume", "ls", "--filter", f"label={LABEL}", "--format", "{{.Name}}"]) ,
     ]:
         result = run(*args)
-        ids = [line for line in result.stdout.splitlines() if line.strip()]
+        ids = sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
         for item in ids:
             if resource == "container":
                 subprocess.run(["docker", "rm", "-f", item], check=True)

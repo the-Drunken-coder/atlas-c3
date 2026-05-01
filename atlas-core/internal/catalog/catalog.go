@@ -1,14 +1,15 @@
 package catalog
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -228,18 +229,40 @@ func Materialize(ctx context.Context, stores store.ObjectStore, catalog Catalog)
 	needUpload := true
 	for _, file := range files {
 		if file.FileID == "catalog-json" {
+			if err := verifyMaterializedCatalogFile(ctx, stores, catalog); err != nil {
+				return Catalog{}, err
+			}
 			needUpload = false
 			break
 		}
 	}
 	if needUpload {
-		if _, err := stores.CreateObjectFile(ctx, store.ObjectUploadInput{File: model.ObjectFile{FileID: "catalog-json", ObjectID: catalog.ObjectID, ContentType: "application/json"}, Reader: strings.NewReader(string(catalog.Raw)), MaxBytes: int64(len(catalog.Raw)) + 1}); err != nil {
+		if _, err := stores.CreateObjectFile(ctx, store.ObjectUploadInput{File: model.ObjectFile{FileID: "catalog-json", ObjectID: catalog.ObjectID, ContentType: "application/json"}, Reader: bytes.NewReader(catalog.Raw), MaxBytes: int64(len(catalog.Raw)) + 1}); err != nil {
 			if coreErr, ok := model.IsCoreError(err); !ok || coreErr.ErrorCode != "conflict" {
 				return Catalog{}, err
 			}
 		}
 	}
 	return catalog, nil
+}
+
+func verifyMaterializedCatalogFile(ctx context.Context, stores store.ObjectStore, catalog Catalog) error {
+	meta, rc, err := stores.OpenObjectFile(ctx, catalog.ObjectID, "catalog-json")
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	if meta.SizeBytes != int64(len(catalog.Raw)) {
+		return model.CatalogUnavailable("materialized command catalog does not match checked-in catalog bytes", nil)
+	}
+	raw, err := io.ReadAll(io.LimitReader(rc, meta.SizeBytes+1))
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(raw, catalog.Raw) {
+		return model.CatalogUnavailable("materialized command catalog does not match checked-in catalog bytes", nil)
+	}
+	return nil
 }
 
 func ValidateParameters(command Command, parameters any) error {

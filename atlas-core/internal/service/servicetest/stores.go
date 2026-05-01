@@ -334,6 +334,11 @@ func (m *MemoryStore) DeleteObject(_ context.Context, id string) error {
 	if _, ok := m.Objects[id]; !ok {
 		return model.NotFound("object", id)
 	}
+	for _, task := range m.Tasks {
+		if task.CommandCatalogObjectID == id {
+			return model.Conflict("object", id, "referenced", map[string]any{"dependent_resource_type": "task"})
+		}
+	}
 	delete(m.Objects, id)
 	for key, file := range m.ObjectFiles {
 		if file.ObjectID == id {

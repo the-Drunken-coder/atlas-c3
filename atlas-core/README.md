@@ -4,6 +4,8 @@ Atlas Core is the Go implementation of the Atlas C3 core service.
 
 ## Run locally
 
+Run these commands from the `atlas-core/` directory:
+
 ```bash
 cp .env.example .env
 python3 tools/atlas-core-cli/main.py start --yes
@@ -20,6 +22,8 @@ go test ./...
 Set `ATLAS_CORE_TEST_DATABASE_URL` to enable PostgreSQL integration tests.
 
 ## Lifecycle CLI
+
+From `atlas-core/`:
 
 ```bash
 python3 tools/atlas-core-cli/main.py

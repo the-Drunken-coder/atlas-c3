@@ -75,15 +75,8 @@ func ValidateObjectFilePathSegments(objectID, fileID string) error {
 		value string
 		field string
 	}{{objectID, "object_id"}, {fileID, "file_id"}} {
-		id := strings.TrimSpace(pair.value)
-		if id == "" {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "required", Message: "value is required"})
-		}
-		if id == "." || id == ".." {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
-		}
-		if strings.ContainsAny(id, `/\`) {
-			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "id must not contain path separators"})
+		if err := model.ValidateID(pair.field, pair.value); err != nil {
+			return model.ValidationError(*err)
 		}
 	}
 	return nil

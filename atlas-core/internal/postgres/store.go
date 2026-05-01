@@ -339,7 +339,7 @@ func (s *Store) DeleteObject(ctx context.Context, id string) error {
 	}
 	result, err := tx.Exec(ctx, `DELETE FROM objects WHERE object_id=$1`, id)
 	if err != nil {
-		return err
+		return mapDeleteObjectError(err, id)
 	}
 	if result.RowsAffected() == 0 {
 		return model.NotFound("object", id)
@@ -854,6 +854,17 @@ func mapPGError(err error, resourceType, resourceID string) error {
 			resourceType = "resource"
 		}
 		return model.Conflict(resourceType, resourceID, "already_exists", nil)
+	}
+	return err
+}
+
+func mapDeleteObjectError(err error, resourceID string) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		return model.Conflict("object", resourceID, "referenced", map[string]any{"constraint": pgErr.ConstraintName})
 	}
 	return err
 }

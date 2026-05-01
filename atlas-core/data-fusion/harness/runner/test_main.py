@@ -106,6 +106,13 @@ class HarnessRunnerTests(unittest.TestCase):
         self.assertEqual(payload["event"], "fusion.error")
         self.assertIn("invalid start byte", payload["message"])
 
+    def test_main_propagates_unexpected_os_errors(self) -> None:
+        """Do not hide unrelated local OS failures inside the tick loop."""
+        module = load_module("http://atlas-core:8080")
+        with mock.patch.object(module, "request", side_effect=OSError("disk failure")):
+            with self.assertRaisesRegex(OSError, "disk failure"):
+                module.main()
+
 
 if __name__ == "__main__":
     unittest.main()

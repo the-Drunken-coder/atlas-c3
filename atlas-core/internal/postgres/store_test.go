@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
@@ -117,5 +118,17 @@ func TestEnsureSchemaDropsUpdatedAtIndexBeforeRecreatingIt(t *testing.T) {
 	}
 	if dropIndex >= createIndex {
 		t.Fatalf("expected drop (%d) before create (%d)", dropIndex, createIndex)
+	}
+}
+
+func TestMapDeleteObjectErrorForeignKeyViolationBecomesConflict(t *testing.T) {
+	t.Parallel()
+	err := mapDeleteObjectError(&pgconn.PgError{Code: "23503", ConstraintName: "tasks_command_catalog_object_id_fkey"}, "obj-1")
+	coreErr, ok := model.IsCoreError(err)
+	if !ok || coreErr.ErrorCode != "conflict" {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	if reason, _ := coreErr.Details["reason"].(string); reason != "referenced" {
+		t.Fatalf("unexpected conflict reason: %#v", coreErr.Details)
 	}
 }
