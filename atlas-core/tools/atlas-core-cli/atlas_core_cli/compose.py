@@ -113,7 +113,7 @@ def compose_up(enable_fusion: bool) -> None:
     subprocess.run(command, cwd=ROOT, check=True)
 
 
-def wait_for_readiness(timeout_seconds: int = 120) -> None:
+def wait_for_readiness(timeout_seconds: float = 120) -> None:
     """Poll the Atlas Core readiness endpoint until it reports ``ready``.
 
     Each ``urlopen`` call is bounded by the remaining time budget so a hung
@@ -121,7 +121,7 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
     Raises :class:`SystemExit` if the service is not ready in time.
 
     Args:
-        timeout_seconds: Total wall-clock budget for the readiness probe.
+        timeout_seconds: Total wall-clock budget in seconds for the readiness probe.
     """
     port = readiness_host_port()
     url = f"http://localhost:{port}/readiness"
