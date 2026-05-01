@@ -237,7 +237,16 @@ func Materialize(ctx context.Context, stores store.ObjectStore, catalog Catalog)
 		}
 	}
 	if needUpload {
-		if _, err := stores.CreateObjectFile(ctx, store.ObjectUploadInput{File: model.ObjectFile{FileID: "catalog-json", ObjectID: catalog.ObjectID, ContentType: "application/json"}, Reader: bytes.NewReader(catalog.Raw), MaxBytes: int64(len(catalog.Raw)) + 1}); err != nil {
+		input := store.ObjectUploadInput{
+			File: model.ObjectFile{
+				FileID:      "catalog-json",
+				ObjectID:    catalog.ObjectID,
+				ContentType: "application/json",
+			},
+			Reader:   bytes.NewReader(catalog.Raw),
+			MaxBytes: int64(len(catalog.Raw)) + 1,
+		}
+		if _, err := stores.CreateObjectFile(ctx, input); err != nil {
 			if coreErr, ok := model.IsCoreError(err); !ok || coreErr.ErrorCode != "conflict" {
 				return Catalog{}, err
 			}

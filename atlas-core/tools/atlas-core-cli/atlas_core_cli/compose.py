@@ -141,7 +141,8 @@ def wait_for_readiness(timeout_seconds: int = 120) -> None:
                 last_error = f"HTTP {response.status} status={payload.get('status')!r}"
         except Exception as exc:
             last_error = str(exc)
-        sleep_seconds = min(2.0, max(0.0, deadline - time.monotonic()))
+        remaining = deadline - time.monotonic()
+        sleep_seconds = min(2.0, max(0.0, remaining))
         if sleep_seconds > 0:
             time.sleep(sleep_seconds)
     message = "Atlas Core did not become ready in time."
