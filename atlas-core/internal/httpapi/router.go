@@ -137,6 +137,12 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func allowedOrigin(deps Dependencies, origin string) bool {
 	for _, allowed := range deps.AllowedOrigins {
 		if allowed == origin {

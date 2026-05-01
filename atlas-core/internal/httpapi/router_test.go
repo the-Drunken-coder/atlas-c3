@@ -30,6 +30,12 @@ type routerFixture struct {
 	files  *objectfiles.Store
 }
 
+type flushingRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (r flushingRecorder) Flush() {}
+
 func newRouterFixture(t *testing.T, maxUploadBytes int64) routerFixture {
 	t.Helper()
 	cat, err := servicetest.NewDefaultCommandCatalog()
@@ -514,7 +520,7 @@ func TestStreamFlushesImmediatelyAfterConnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req := httptest.NewRequest(http.MethodGet, "/stream/changes", nil).WithContext(ctx)
-	rr := httptest.NewRecorder()
+	rr := flushingRecorder{ResponseRecorder: httptest.NewRecorder()}
 	done := make(chan struct{})
 	go func() {
 		fixture.router.ServeHTTP(rr, req)
