@@ -160,8 +160,8 @@ def destructive_cleanup() -> None:
     print("Removing Atlas Core project resources...")
     for resource, args in [
         ("container", ["docker", "ps", "-a", "--filter", f"label={LABEL}", "--format", "{{.ID}}"]),
-        ("image", ["docker", "images", "--filter", f"label={LABEL}", "--format", "{{.ID}}"]) ,
-        ("volume", ["docker", "volume", "ls", "--filter", f"label={LABEL}", "--format", "{{.Name}}"]) ,
+        ("image", ["docker", "images", "--filter", f"label={LABEL}", "--format", "{{.ID}}"]),
+        ("volume", ["docker", "volume", "ls", "--filter", f"label={LABEL}", "--format", "{{.Name}}"]),
     ]:
         result = run(*args)
         ids = sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
