@@ -351,10 +351,11 @@ func (s *Services) CreateObject(ctx context.Context, input ObjectCreateInput) (m
 	if err := requireValidID("object_id", input.ObjectID); err != nil {
 		return model.Object{}, err
 	}
-	if err := validateObjectInput(ctx, s.stores, input.ObjectID, input.Type, input.OwnerType, input.OwnerID, input.JSON); err != nil {
+	objectType := strings.TrimSpace(input.Type)
+	if err := validateObjectInput(ctx, s.stores, input.ObjectID, objectType, input.OwnerType, input.OwnerID, input.JSON); err != nil {
 		return model.Object{}, err
 	}
-	object := model.Object{ObjectID: input.ObjectID, Type: input.Type, OwnerType: input.OwnerType, OwnerID: input.OwnerID, JSON: model.NormalizeJSONMap(input.JSON), CreatedAt: s.now(), UpdatedAt: s.now()}
+	object := model.Object{ObjectID: input.ObjectID, Type: objectType, OwnerType: input.OwnerType, OwnerID: input.OwnerID, JSON: model.NormalizeJSONMap(input.JSON), CreatedAt: s.now(), UpdatedAt: s.now()}
 	created, err := s.stores.CreateObject(ctx, object)
 	if err != nil {
 		return model.Object{}, err
@@ -377,7 +378,7 @@ func (s *Services) PatchObject(ctx context.Context, id string, patch ObjectPatch
 		return model.Object{}, err
 	}
 	if patch.Type != nil {
-		object.Type = *patch.Type
+		object.Type = strings.TrimSpace(*patch.Type)
 	}
 	object.JSON = model.MergeNamedSections(object.JSON, patch.JSON)
 	if err := validateObjectInput(ctx, s.stores, object.ObjectID, object.Type, object.OwnerType, object.OwnerID, object.JSON); err != nil {
@@ -495,17 +496,23 @@ func (s *Services) loadPinnedCatalog(ctx context.Context, objectID string) (cata
 		}
 		return active, nil
 	}
-	_, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
+	meta, rc, err := s.stores.OpenObjectFile(ctx, objectID, "catalog-json")
 	if err != nil {
 		return catalog.Catalog{}, err
 	}
 	defer rc.Close()
+	if meta.SizeBytes <= 0 {
+		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog has invalid size metadata", nil)
+	}
 	raw, err := readAllCapped(rc, maxPinnedCatalogBytes)
 	if err != nil {
 		if coreErr, ok := model.IsCoreError(err); ok && coreErr.ErrorCode == "payload_too_large" {
 			return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog exceeds read limit", nil)
 		}
 		return catalog.Catalog{}, err
+	}
+	if int64(len(raw)) != meta.SizeBytes {
+		return catalog.Catalog{}, model.CatalogUnavailable("stored command catalog byte length does not match object metadata", nil)
 	}
 	contentHash := catalog.ContentHashOfBytes(raw)
 	if catalog.ObjectIDFromContentHash(contentHash) != objectID {
@@ -713,6 +720,10 @@ func validateTaskCommandSupport(commandType string, asset model.Entity) error {
 func validateObjectInput(ctx context.Context, stores store.Stores, objectID, objectType, ownerType, ownerID string, jsonMap model.JSONMap) error {
 	if err := requireValidID("object_id", objectID); err != nil {
 		return err
+	}
+	objectType = strings.TrimSpace(objectType)
+	if objectType == "" {
+		return model.ValidationError(model.FieldError{Field: "type", Code: "required", Message: "type is required"})
 	}
 	if ownerType == "" || ownerID == "" {
 		return model.ValidationError(model.FieldError{Field: "owner", Code: "required", Message: "owner_type and owner_id are required"})

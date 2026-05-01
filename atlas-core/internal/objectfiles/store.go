@@ -33,6 +33,10 @@ func New(root string) (*Store, error) {
 	return &Store{root: root, healthy: true}, nil
 }
 
+func (s *Store) StagingDir() string {
+	return filepath.Join(s.root, "staging")
+}
+
 func (s *Store) Status() model.DependencyStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -58,12 +62,38 @@ func (s *Store) Verify() error {
 	if err := os.WriteFile(file, []byte("ok"), 0o644); err != nil {
 		return err
 	}
-	_ = os.Remove(file)
+	if rmErr := os.Remove(file); rmErr != nil {
+		return fmt.Errorf("object storage write-check cleanup: %w", rmErr)
+	}
 	return nil
 }
 
-func (s *Store) LogicalPath(objectID, fileID string) string {
-	return filepath.ToSlash(filepath.Join("objects", objectID, fileID))
+// ValidateObjectFilePathSegments rejects empty IDs and characters that would
+// escape a single directory segment under objects/.
+func ValidateObjectFilePathSegments(objectID, fileID string) error {
+	for _, pair := range []struct {
+		value string
+		field string
+	}{{objectID, "object_id"}, {fileID, "file_id"}} {
+		id := strings.TrimSpace(pair.value)
+		if id == "" {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "required", Message: "value is required"})
+		}
+		if id == "." || id == ".." {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "invalid id"})
+		}
+		if strings.ContainsAny(id, `/\`) {
+			return model.ValidationError(model.FieldError{Field: pair.field, Code: "invalid_value", Message: "id must not contain path separators"})
+		}
+	}
+	return nil
+}
+
+func (s *Store) LogicalPath(objectID, fileID string) (string, error) {
+	if err := ValidateObjectFilePathSegments(objectID, fileID); err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(filepath.Join("objects", objectID, fileID)), nil
 }
 
 func (s *Store) AbsolutePath(logicalPath string) (string, error) {
@@ -86,6 +116,9 @@ func (s *Store) AbsolutePath(logicalPath string) (string, error) {
 }
 
 func (s *Store) Stage(ctx context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (stagePath string, size int64, detectedType string, err error) {
+	if err := ValidateObjectFilePathSegments(objectID, fileID); err != nil {
+		return "", 0, "", err
+	}
 	stageDir := filepath.Join(s.root, "staging", objectID)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {
 		return "", 0, "", err
@@ -136,7 +169,11 @@ func (s *Store) Promote(stagePath, logicalPath string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(stagePath, target)
+	if err := os.Rename(stagePath, target); err != nil {
+		return err
+	}
+	pruneEmptyStagingParents(filepath.Dir(stagePath), s.StagingDir())
+	return nil
 }
 
 func (s *Store) Delete(logicalPath string) error {
@@ -167,6 +204,56 @@ func (s *Store) Open(logicalPath string) (io.ReadCloser, os.FileInfo, error) {
 	return file, stat, nil
 }
 
+func CleanupStagedPath(stagedPath, stagingDir string) error {
+	if stagedPath == "" {
+		return nil
+	}
+	if err := os.Remove(stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	pruneEmptyStagingParents(filepath.Dir(stagedPath), stagingDir)
+	return nil
+}
+
+func pruneEmptyStagingParents(path, stagingDir string) {
+	if path == "" || stagingDir == "" {
+		return
+	}
+	base, err := filepath.Abs(stagingDir)
+	if err != nil {
+		return
+	}
+	current, err := filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	for current != base {
+		within, relErr := pathWithinDir(base, current)
+		if relErr != nil || !within {
+			return
+		}
+		if err := os.Remove(current); err != nil {
+			return
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return
+		}
+		current = parent
+	}
+}
+
+func pathWithinDir(dir, path string) (bool, error) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
+}
+
 func (s *Store) TruncateBack(logicalPath string, size int64) error {
 	if size < 0 {
 		return fmt.Errorf("invalid truncate size %d", size)
@@ -179,11 +266,13 @@ func (s *Store) TruncateBack(logicalPath string, size int64) error {
 }
 
 // Append writes reader to the on-disk file at logicalPath in O_APPEND mode and
-// returns the actual pre-append disk size and the new disk size. Callers MUST
-// use preSize (not any database-recorded size) as the rollback truncate target
-// if a downstream operation fails: database metadata can be stale (a prior
-// commit may have failed and left the file ahead of metadata), so truncating
-// to a stale size would discard committed bytes that existed before this call.
+// returns the actual pre-append disk size and the new disk size. preSize is
+// taken from the open file after acquiring the append lock, so it matches the
+// size other appenders observe for rollback. Callers MUST use preSize (not any
+// database-recorded size) as the rollback truncate target if a downstream
+// operation fails: database metadata can be stale (a prior commit may have
+// failed and left the file ahead of metadata), so truncating to a stale size
+// would discard committed bytes that existed before this call.
 func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (preSize, newSize int64, err error) {
 	target, err := s.AbsolutePath(logicalPath)
 	if err != nil {
@@ -192,30 +281,39 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return 0, 0, err
 	}
-	preStat, err := os.Stat(target)
+	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := flockAppendLock(file); err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			return 0, 0, fmt.Errorf("%w; close: %v", err, closeErr)
+		}
+		return 0, 0, err
+	}
+	defer func() {
+		_ = flockAppendUnlock(file)
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	preStat, err := file.Stat()
 	if err != nil {
 		return 0, 0, err
 	}
 	preSize = preStat.Size()
-	file, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return preSize, 0, err
-	}
 	limiter := &io.LimitedReader{R: reader, N: maxBytes + 1}
 	written, err := io.Copy(file, limiter)
 	if err != nil {
-		_ = file.Close()
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
 			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
 		return preSize, 0, err
 	}
 	if written == 0 {
-		_ = file.Close()
 		return preSize, 0, model.ValidationError(model.FieldError{Field: "body", Code: "required", Message: "append body must not be empty"})
 	}
 	if written > maxBytes {
-		_ = file.Close()
 		payloadErr := model.PayloadTooLarge("append exceeds configured limit")
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
 			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", payloadErr, tr)
@@ -223,19 +321,13 @@ func (s *Store) Append(logicalPath string, reader io.Reader, maxBytes int64) (pr
 		return preSize, 0, payloadErr
 	}
 	if err := file.Sync(); err != nil {
-		_ = file.Close()
 		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
 			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
 		}
 		return preSize, 0, err
 	}
-	if err := file.Close(); err != nil {
-		if tr := s.TruncateBack(logicalPath, preSize); tr != nil {
-			return preSize, 0, fmt.Errorf("%w: rollback truncate failed: %v", err, tr)
-		}
-		return preSize, 0, err
-	}
-	return preSize, preSize + written, nil
+	newSize = preSize + written
+	return preSize, newSize, nil
 }
 
 func SafeUsageHint(value string) string {

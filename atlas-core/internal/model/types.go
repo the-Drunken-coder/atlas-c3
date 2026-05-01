@@ -287,6 +287,8 @@ func CountJSONFields(input any) int {
 			total += CountJSONFields(child)
 		}
 		return total
+	case JSONMap:
+		return CountJSONFields(map[string]any(v))
 	case []any:
 		total := 0
 		for _, child := range v {
@@ -308,6 +310,8 @@ func JSONDepth(input any) int {
 			}
 		}
 		return maxDepth
+	case JSONMap:
+		return JSONDepth(map[string]any(v))
 	case []any:
 		maxDepth := 1
 		for _, child := range v {
@@ -322,8 +326,13 @@ func JSONDepth(input any) int {
 }
 
 func ValidateCustomComponent(name string, value any) *FieldError {
-	obj, ok := value.(map[string]any)
-	if !ok {
+	var obj map[string]any
+	switch v := value.(type) {
+	case map[string]any:
+		obj = v
+	case JSONMap:
+		obj = map[string]any(v)
+	default:
 		return &FieldError{Field: name, Code: "invalid_value", Message: "custom components must be JSON objects"}
 	}
 	if JSONSize(obj) > 16*1024 {
@@ -347,6 +356,8 @@ func ValidateCustomComponent(name string, value any) *FieldError {
 					return err
 				}
 			}
+		case JSONMap:
+			return walk(map[string]any(node))
 		case []any:
 			for _, child := range node {
 				if err := walk(child); err != nil {

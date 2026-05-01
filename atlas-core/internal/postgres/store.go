@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,10 +17,21 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
+
+type retainedStagedPathError struct {
+	path string
+}
+
+func (e retainedStagedPathError) Error() string { return "retained staged path: " + e.path }
+
+func (e retainedStagedPathError) RetainedStagedPath() string {
+	return e.path
+}
 
 type Store struct {
 	pool      *pgxpool.Pool
@@ -366,17 +378,60 @@ func (s *Store) postCommitObjectFilePathsDelete(contextLabel, resourceID string,
 	}
 }
 func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadInput) (model.ObjectFile, error) {
-	stagedPath, size, detectedType, err := s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
+	var stagedPath string
+	var size int64
+	var detectedType string
+	removeStaged := true
+	defer func() {
+		if removeStaged && stagedPath != "" {
+			_ = objectfiles.CleanupStagedPath(stagedPath, s.files.StagingDir())
+		}
+	}()
+
+	if input.PreStagedPath != "" {
+		limit := chooseLimit(input.MaxBytes, s.maxUpload)
+		if input.PreStagedSizeBytes < 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
+		}
+		info, err := os.Lstat(input.PreStagedPath)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+		stagedPath, info, err = validatePreStagedPath(input.PreStagedPath, s.files.StagingDir(), info)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+		if info.Size() != input.PreStagedSizeBytes {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size does not match file"})
+		}
+		if info.Size() == 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
+		}
+		if info.Size() > limit {
+			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
+		}
+		size = info.Size()
+		detectedType = input.PreStagedContentType
+	} else {
+		var err error
+		stagedPath, size, detectedType, err = s.files.Stage(ctx, input.File.ObjectID, input.File.FileID, input.Reader, chooseLimit(input.MaxBytes, s.maxUpload))
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+	}
+	// Default-clean-up the staged path. Two paths intentionally suppress this:
+	//  (1) Promote success — the rename consumed the file, so a follow-up
+	//      os.Remove would race against the destination; and
+	//  (2) Promote failure after the metadata commit — we keep the staged
+	//      bytes for forensics / manual recovery (see StorageUnavailable below).
+	file := input.File
+	logical, err := s.files.LogicalPath(file.ObjectID, file.FileID)
 	if err != nil {
 		return model.ObjectFile{}, err
 	}
-	defer os.Remove(stagedPath)
-	file := input.File
-	file.Path = s.files.LogicalPath(file.ObjectID, file.FileID)
+	file.Path = logical
 	file.SizeBytes = size
-	if file.ContentType == "" {
-		file.ContentType = detectedType
-	}
+	file.ContentType = chooseStoredContentType(file.ContentType, detectedType)
 	now := time.Now().UTC()
 	file.CreatedAt = now
 	file.UpdatedAt = now
@@ -398,9 +453,14 @@ func (s *Store) CreateObjectFile(ctx context.Context, input store.ObjectUploadIn
 		return model.ObjectFile{}, err
 	}
 	if err := s.files.Promote(stagedPath, file.Path); err != nil {
+		removeStaged = false
 		s.files.MarkMismatch("object file metadata committed but byte promotion failed")
-		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{"object_id": file.ObjectID, "file_id": file.FileID})
+		return model.ObjectFile{}, model.StorageUnavailable("object storage mismatch detected", map[string]any{
+			"object_id": file.ObjectID,
+			"file_id":   file.FileID,
+		}).WithCause(retainedStagedPathError{path: stagedPath})
 	}
+	removeStaged = false
 	return file, nil
 }
 
@@ -529,7 +589,7 @@ func (s *Store) ListObjectFilesForObject(ctx context.Context, objectID string) (
 }
 
 func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly, IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return store.QueryState{}, err
 	}
@@ -567,7 +627,7 @@ func (s *Store) GetFullQueryState(ctx context.Context) (store.QueryState, error)
 			return state, err
 		}
 	}
-	if rows, err := tx.Query(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files ORDER BY updated_at DESC, file_id ASC`); err != nil {
+	if rows, err := tx.Query(ctx, `SELECT file_id, object_id, path, content_type, size_bytes, COALESCE(usage_hint,''), created_at, updated_at FROM object_files ORDER BY updated_at DESC, object_id ASC, file_id ASC`); err != nil {
 		return state, err
 	} else {
 		state.ObjectFiles, err = collectObjectFiles(rows)
@@ -798,15 +858,73 @@ func mapPGError(err error, resourceType, resourceID string) error {
 	return err
 }
 
+// defaultUploadLimitBytes matches servicetest.memUploadLimit when no per-request cap is set.
+const defaultUploadLimitBytes = 16 * 1024 * 1024
+
 func chooseLimit(requested, fallback int64) int64 {
-	if requested > 0 && requested < fallback {
+	if requested > 0 {
+		if fallback > 0 && requested > fallback {
+			return fallback
+		}
 		return requested
 	}
-	if requested > 0 {
+	if fallback > 0 {
 		return fallback
 	}
-	return fallback
+	return defaultUploadLimitBytes
 }
 
 func itoa(v int) string { return fmt.Sprintf("%d", v) }
 
+func chooseStoredContentType(explicit, detected string) string {
+	if normalized, valid := mediatype.NormalizeContentType(explicit); valid && strings.TrimSpace(explicit) != "" {
+		return normalized
+	}
+	normalized, _ := mediatype.NormalizeContentType(detected)
+	return normalized
+}
+
+func validatePreStagedPath(preStagedPath, stagingDir string, info os.FileInfo) (string, os.FileInfo, error) {
+	absPath, absErr := filepath.Abs(preStagedPath)
+	if absErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	absStaging, stagingAbsErr := filepath.Abs(stagingDir)
+	if stagingAbsErr != nil {
+		return "", nil, fmt.Errorf("staging directory: %w", stagingAbsErr)
+	}
+	resolvedStaging, resolveStagingErr := filepath.EvalSymlinks(absStaging)
+	if resolveStagingErr != nil {
+		return "", nil, fmt.Errorf("staging directory: %w", resolveStagingErr)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+	}
+	resolvedParent, resolveParentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if resolveParentErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	resolvedPath := filepath.Join(resolvedParent, filepath.Base(absPath))
+	withinStaging, relErr := pathWithinDir(resolvedStaging, resolvedPath)
+	if relErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	if !withinStaging {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+	}
+	return resolvedPath, info, nil
+}
+
+func pathWithinDir(dir, path string) (bool, error) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
+}

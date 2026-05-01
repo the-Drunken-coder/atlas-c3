@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,6 +36,8 @@ type Dependencies struct {
 	ObjectStore    interface {
 		StorageStatus(context.Context) model.DependencyStatus
 	}
+	// Files stages multipart uploads before commit; required for object file POST.
+	Files      *objectfiles.Store
 	Logger     *logging.Logger
 	Readiness  func(context.Context) (model.ReadinessResponse, int)
 	Descriptor func() (model.ServiceDescriptor, error)
@@ -188,7 +192,12 @@ func (r *Router) handleCreateEntity(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	input := service.EntityCreateInput{EntityID: readString(payload, "entity_id"), Type: readString(payload, "type"), Subtype: readString(payload, "subtype"), Alias: readString(payload, "alias"), JSON: readJSONMap(payload["json"])}
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	input := service.EntityCreateInput{EntityID: readString(payload, "entity_id"), Type: readString(payload, "type"), Subtype: readString(payload, "subtype"), Alias: readString(payload, "alias"), JSON: jsonMap}
 	entity, err := r.deps.Services.CreateEntity(req.Context(), input)
 	if err != nil {
 		r.writeError(w, req, err)
@@ -226,7 +235,12 @@ func (r *Router) handlePatchEntity(w http.ResponseWriter, req *http.Request) {
 		value := readString(payload, "alias")
 		alias = &value
 	}
-	entity, err := r.deps.Services.PatchEntity(req.Context(), req.PathValue("entity_id"), service.EntityPatchInput{Subtype: subtype, Alias: alias, JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	entity, err := r.deps.Services.PatchEntity(req.Context(), req.PathValue("entity_id"), service.EntityPatchInput{Subtype: subtype, Alias: alias, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -295,7 +309,12 @@ func (r *Router) handleCreateObservation(w http.ResponseWriter, req *http.Reques
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: readString(payload, "observation_id"), SourceAssetID: readString(payload, "source_asset_id"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.CreateObservation(req.Context(), service.ObservationCreateInput{ObservationID: readString(payload, "observation_id"), SourceAssetID: readString(payload, "source_asset_id"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -322,7 +341,12 @@ func (r *Router) handlePatchObservation(w http.ResponseWriter, req *http.Request
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.PatchObservation(req.Context(), req.PathValue("observation_id"), service.ObservationPatchInput{JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.PatchObservation(req.Context(), req.PathValue("observation_id"), service.ObservationPatchInput{JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -366,7 +390,12 @@ func (r *Router) handleCreateTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: readString(payload, "task_id"), AssetID: readString(payload, "asset_id"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.CreateTask(req.Context(), service.TaskCreateInput{TaskID: readString(payload, "task_id"), AssetID: readString(payload, "asset_id"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -393,7 +422,12 @@ func (r *Router) handlePatchTask(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.PatchTask(req.Context(), req.PathValue("task_id"), service.TaskPatchInput{JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.PatchTask(req.Context(), req.PathValue("task_id"), service.TaskPatchInput{JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -419,7 +453,12 @@ func (r *Router) handleTaskStatus(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: readString(payload, "status"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.TransitionTaskStatus(req.Context(), req.PathValue("task_id"), service.TaskStatusInput{Status: readString(payload, "status"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -459,7 +498,12 @@ func (r *Router) handleCreateObject(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, req, validationUnknownFields(unknown...))
 		return
 	}
-	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: readString(payload, "object_id"), Type: readString(payload, "type"), OwnerType: readString(payload, "owner_type"), OwnerID: readString(payload, "owner_id"), JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.CreateObject(req.Context(), service.ObjectCreateInput{ObjectID: readString(payload, "object_id"), Type: readString(payload, "type"), OwnerType: readString(payload, "owner_type"), OwnerID: readString(payload, "owner_id"), JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -491,7 +535,12 @@ func (r *Router) handlePatchObject(w http.ResponseWriter, req *http.Request) {
 		value := readString(payload, "type")
 		objectType = &value
 	}
-	item, err := r.deps.Services.PatchObject(req.Context(), req.PathValue("object_id"), service.ObjectPatchInput{Type: objectType, JSON: readJSONMap(payload["json"])})
+	jsonMap, jerr := readJSONMapField(raw, payload, "json")
+	if jerr != nil {
+		r.writeError(w, req, jerr)
+		return
+	}
+	item, err := r.deps.Services.PatchObject(req.Context(), req.PathValue("object_id"), service.ObjectPatchInput{Type: objectType, JSON: jsonMap})
 	if err != nil {
 		r.writeError(w, req, err)
 		return
@@ -541,15 +590,26 @@ func (r *Router) handleUploadObjectFile(w http.ResponseWriter, req *http.Request
 	}
 	objectID := req.PathValue("object_id")
 	fileID := req.PathValue("file_id")
+	if err := validateUploadPathIDs(objectID, fileID); err != nil {
+		r.writeError(w, req, err)
+		return
+	}
 	var usageHint, contentTypeOverride string
-	var filePart *multipart.Part
-parts:
+	var fileHeaderContentType string
+	var stagedPath, detectedType string
+	var size int64
+	cleanupStage := func() {
+		if stagedPath != "" {
+			_ = objectfiles.CleanupStagedPath(stagedPath, r.deps.Files.StagingDir())
+		}
+	}
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
+			cleanupStage()
 			r.writeError(w, req, r.mapMultipartReadError(err))
 			return
 		}
@@ -557,12 +617,14 @@ parts:
 		switch name {
 		case "file_id":
 			_ = part.Close()
+			cleanupStage()
 			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
 			return
 		case "usage_hint":
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
+				cleanupStage()
 				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
@@ -571,58 +633,75 @@ parts:
 			v, perr := readMultipartFormFieldString(part)
 			_ = part.Close()
 			if perr != nil {
+				cleanupStage()
 				r.writeError(w, req, r.mapMultipartReadError(perr))
 				return
 			}
 			contentTypeOverride = v
 		case "file":
-			if filePart != nil {
+			if stagedPath != "" {
 				_ = part.Close()
+				cleanupStage()
 				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "invalid_value", Message: "only one file part is allowed"}))
 				return
 			}
-			// The file part must be the last part we read: another NextPart() would
-			// discard the unread file body (see mime/multipart.Reader docs).
-			filePart = part
-			break parts
+			if r.deps.Files == nil {
+				_ = part.Close()
+				r.writeError(w, req, model.InternalError("object file staging is not configured", nil))
+				return
+			}
+			fileHeaderContentType = part.Header.Get("Content-Type")
+			stagedPath, size, detectedType, err = r.deps.Files.Stage(req.Context(), objectID, fileID, part, maxFile)
+			_ = part.Close()
+			if err != nil {
+				r.writeError(w, req, r.mapChunkedReadError(err))
+				return
+			}
 		default:
+			if stagedPath != "" {
+				_, copyErr := io.Copy(io.Discard, part)
+				_ = part.Close()
+				cleanupStage()
+				if copyErr != nil {
+					r.writeError(w, req, r.mapMultipartReadError(copyErr))
+					return
+				}
+				r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "multipart must not contain parts after the file field except usage_hint and content_type"}))
+				return
+			}
 			_, _ = io.Copy(io.Discard, part)
 			_ = part.Close()
 		}
 	}
-	if filePart == nil {
+	if stagedPath == "" {
 		r.writeError(w, req, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file upload is required"}))
 		return
 	}
-	defer filePart.Close()
-	contentType, err := filePartContentType(filePart, contentTypeOverride)
+	contentType, err := filePartContentType(fileHeaderContentType, contentTypeOverride)
 	if err != nil {
+		cleanupStage()
 		r.writeError(w, req, err)
 		return
 	}
-	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{File: model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: contentType}, Reader: filePart, MaxBytes: maxFile})
+
+	ct := contentType
+	if ct == "" {
+		ct = detectedType
+	}
+	item, err := r.deps.Services.UploadObjectFile(req.Context(), store.ObjectUploadInput{
+		File:                 model.ObjectFile{FileID: fileID, ObjectID: objectID, UsageHint: objectfiles.SafeUsageHint(usageHint), ContentType: ct},
+		Reader:               nil,
+		MaxBytes:             maxFile,
+		PreStagedPath:        stagedPath,
+		PreStagedSizeBytes:   size,
+		PreStagedContentType: detectedType,
+	})
 	if err != nil {
+		if !uploadErrorRetainsPreStagedPath(err, stagedPath) {
+			cleanupStage()
+		}
 		r.writeError(w, req, r.mapChunkedReadError(err))
 		return
-	}
-
-	for {
-		part, err := mr.NextPart()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			r.writeError(w, req, r.mapMultipartReadError(err))
-			return
-		}
-		if part.FormName() == "file_id" {
-			_ = part.Close()
-			_ = r.deps.Services.DeleteObjectFile(req.Context(), objectID, fileID)
-			r.writeError(w, req, model.ValidationError(model.FieldError{Field: "multipart", Code: "invalid_value", Message: "file_id is specified in the URL path; omit the file_id form field"}))
-			return
-		}
-		_, _ = io.Copy(io.Discard, part)
-		_ = part.Close()
 	}
 
 	writeJSON(w, http.StatusCreated, item)
@@ -656,7 +735,7 @@ func (r *Router) mapChunkedReadError(err error) error {
 	return err
 }
 
-func filePartContentType(p *multipart.Part, formOverride string) (string, error) {
+func filePartContentType(partHeaderContentType, formOverride string) (string, error) {
 	if formOverride != "" {
 		normalized, valid := mediatype.NormalizeContentType(formOverride)
 		if !valid {
@@ -664,8 +743,10 @@ func filePartContentType(p *multipart.Part, formOverride string) (string, error)
 		}
 		return normalized, nil
 	}
-	ct := p.Header.Get("Content-Type")
-	normalized, _ := mediatype.NormalizeContentType(ct)
+	normalized, valid := mediatype.NormalizeContentType(partHeaderContentType)
+	if !valid || strings.TrimSpace(partHeaderContentType) == "" {
+		return "", nil
+	}
 	return normalized, nil
 }
 
@@ -786,14 +867,107 @@ func readString(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return value
 }
-func readJSONMap(value any) model.JSONMap {
-	if value == nil {
-		return model.JSONMap{}
+
+// uploadErrorRetainsPreStagedPath is true when the store left PreStagedPath on
+// disk for operator recovery after a post-commit promotion failure; the HTTP
+// layer must not delete that path (see store.ObjectUploadInput).
+func uploadErrorRetainsPreStagedPath(err error, stagedPath string) bool {
+	if stagedPath == "" {
+		return false
 	}
-	if out, ok := value.(map[string]any); ok {
-		return out
+	ce, ok := model.IsCoreError(err)
+	if !ok || ce.ErrorCode != "storage_unavailable" {
+		return false
 	}
-	return model.JSONMap{}
+	sp := retainedStagedPath(ce)
+	if ce.Details != nil {
+		// Legacy fallback for older storage_unavailable errors that still carried
+		// the retained path in serialized details instead of the internal cause.
+		if detailPath, _ := ce.Details["staged_path"].(string); detailPath != "" {
+			sp = detailPath
+		}
+	}
+	return sp != "" && canonicalizeStagedPathForCompare(sp) == canonicalizeStagedPathForCompare(stagedPath)
+}
+
+func canonicalizeStagedPathForCompare(path string) string {
+	if path == "" {
+		return ""
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	// Prefer resolving the full path when it still exists. If the file has
+	// already been renamed or removed, fall back to resolving the parent
+	// directory and rejoining the basename so symlinked staging directories
+	// still compare equal to the canonical path persisted by the store.
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		return filepath.Clean(resolvedPath)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if err != nil {
+		return filepath.Clean(absPath)
+	}
+	return filepath.Clean(filepath.Join(resolvedParent, filepath.Base(absPath)))
+}
+
+func retainedStagedPath(err *model.CoreError) string {
+	if err == nil || err.Cause() == nil {
+		return ""
+	}
+	carrier, ok := err.Cause().(interface{ RetainedStagedPath() string })
+	if !ok {
+		return ""
+	}
+	return carrier.RetainedStagedPath()
+}
+
+// readJSONMapField extracts a JSON object field from a decoded request body.
+// It distinguishes three cases:
+//   - Key omitted entirely → returns (nil, nil). Callers should treat nil as
+//     "field not provided" (e.g., don't update on PATCH).
+//   - Key present with value null → returns a validation error (null is not an
+//     object).
+//   - Key present with value {} or a non-empty object → returns the JSONMap.
+//
+// The nil-vs-empty distinction is significant for PATCH semantics: nil means
+// "skip update", while an empty JSONMap means "set to empty object".
+func readJSONMapField(raw map[string]json.RawMessage, payload map[string]any, key string) (model.JSONMap, error) {
+	rm, inRaw := raw[key]
+	if !inRaw {
+		return nil, nil
+	}
+	if string(bytes.TrimSpace(rm)) == "null" {
+		return nil, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
+	}
+	v, ok := payload[key]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		return model.JSONMap(x), nil
+	case model.JSONMap:
+		return x, nil
+	default:
+		return nil, model.ValidationError(model.FieldError{Field: key, Code: "invalid_type", Message: "must be a JSON object"})
+	}
+}
+
+func validateUploadPathIDs(objectID, fileID string) error {
+	fields := []model.FieldError{}
+	if err := model.ValidateID("object_id", objectID); err != nil {
+		fields = append(fields, *err)
+	}
+	if err := model.ValidateID("file_id", fileID); err != nil {
+		fields = append(fields, *err)
+	}
+	if len(fields) > 0 {
+		return model.ValidationError(fields...)
+	}
+	return nil
 }
 
 func rejectUnknownQuery(req *http.Request, allowed ...string) error {

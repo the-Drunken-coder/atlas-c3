@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-atlas_core}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD see env example}
     ports:
       - "${ATLAS_CORE_POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -27,8 +27,8 @@ services:
         condition: service_healthy
     environment:
       ATLAS_CORE_HOST: 0.0.0.0
-      ATLAS_CORE_PORT: ${ATLAS_CORE_PORT:-8080}
-      ATLAS_CORE_DATABASE_URL: ${ATLAS_CORE_DATABASE_URL:-postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-atlas_core}?sslmode=disable}
+      ATLAS_CORE_PORT: "8080"
+      ATLAS_CORE_DATABASE_URL: ${ATLAS_CORE_DATABASE_URL:?set ATLAS_CORE_DATABASE_URL in .env — use host postgres from this compose network; percent-encode password in userinfo}
       ATLAS_CORE_OBJECT_STORAGE_ROOT: /data/object-storage
       ATLAS_CORE_COMMAND_CATALOG_PATH: /app/command-catalog/catalog.json
       ATLAS_CORE_SIGHTING_CATALOG_PATH: /app/sighting-catalog/catalog.json
@@ -36,7 +36,7 @@ services:
       ATLAS_CORE_LOG_LEVEL: ${ATLAS_CORE_LOG_LEVEL:-info}
       ATLAS_DATA_FUSION_STACK: ${ATLAS_DATA_FUSION_STACK:-}
     ports:
-      - "${ATLAS_CORE_PORT:-8080}:8080"
+      - "${ATLAS_CORE_HOST_PORT:-8080}:8080"
     volumes:
       - atlas-core-object-storage:/data/object-storage
     healthcheck:

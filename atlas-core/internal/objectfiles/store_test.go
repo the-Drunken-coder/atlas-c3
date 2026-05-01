@@ -14,7 +14,10 @@ func TestAppendOversizeRollsBackToPreSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logical := s.LogicalPath("o", "f")
+	logical, err := s.LogicalPath("o", "f")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Promote(writableTemp(t, dir, "f", "hello"), logical); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -37,7 +40,10 @@ func TestAppendEmptyBodyDoesNotChangeSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := s.LogicalPath("o", "f")
+	path, err := s.LogicalPath("o", "f")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Promote(writableTemp(t, dir, "f", "zz"), path); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +66,10 @@ func TestTruncateBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := s.LogicalPath("a", "b")
+	path, err := s.LogicalPath("a", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Promote(writableTemp(t, dir, "b", "1234"), path); err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +104,36 @@ func writableTemp(t *testing.T, root, name, content string) string {
 	return f.Name()
 }
 
+func TestLogicalPathRejectsUnsafeIDs(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LogicalPath("a/b", "f"); err == nil {
+		t.Fatal("expected error for object_id with separator")
+	}
+	if _, err := s.LogicalPath("a", "../x"); err == nil {
+		t.Fatal("expected error for file_id with traversal")
+	}
+	if _, err := s.LogicalPath("a\\b", "f"); err == nil {
+		t.Fatal("expected error for object_id with backslash separator")
+	}
+	if _, err := s.LogicalPath("a", "f\\g"); err == nil {
+		t.Fatal("expected error for file_id with backslash separator")
+	}
+}
+
 func TestAppendIOCopyErrorTruncates(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := s.LogicalPath("o", "f")
+	p, err := s.LogicalPath("o", "f")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.Promote(writableTemp(t, dir, "f", "abc"), p); err != nil {
 		t.Fatal(err)
 	}

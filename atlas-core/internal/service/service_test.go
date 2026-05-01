@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -261,9 +262,21 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	svc, stores, _ := setupServices(t)
 	setAssetSupportedCommands(stores, "move_to_location")
 	stores.Objects["catalog-big"] = model.Object{ObjectID: "catalog-big", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog"}
-	raw := []byte(strings.Repeat("a", oversizedCatalogByteCount))
-	stores.ObjectFiles["catalog-json"] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
-	stores.FileBytes["catalog-json"] = raw
+	const prefix = `{"catalog_id":"oversized","version":"1","commands":[{"type":"`
+	const infix = `","display_name":"x","description":"x","parameters_schema":{"type":"object"}}]}`
+	const padLen = oversizedCatalogByteCount - len(prefix) - len(infix)
+	if padLen < 0 {
+		t.Fatalf("fixture overhead exceeds oversizedCatalogByteCount")
+	}
+	raw := []byte(prefix + strings.Repeat("a", padLen) + infix)
+	if len(raw) != oversizedCatalogByteCount {
+		t.Fatalf("len(raw)=%d want %d", len(raw), oversizedCatalogByteCount)
+	}
+	if !json.Valid(raw) {
+		t.Fatal("expected valid JSON fixture")
+	}
+	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "catalog-big", FileID: "catalog-json"}] = model.ObjectFile{FileID: "catalog-json", ObjectID: "catalog-big", ContentType: "application/json", SizeBytes: int64(len(raw))}
+	stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "catalog-big", FileID: "catalog-json"}] = raw
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: "catalog-big", JSON: model.JSONMap{"components": map[string]any{
 		"command":    map[string]any{"type": "move_to_location"},
 		"parameters": map[string]any{"latitude": 1.0},
@@ -275,5 +288,44 @@ func TestTransitionTaskStatusMapsOversizedPinnedCatalogToCatalogUnavailable(t *t
 	ce, ok := model.IsCoreError(err)
 	if !ok || ce.ErrorCode != "catalog_unavailable" {
 		t.Fatalf("expected catalog_unavailable, got %v", err)
+	}
+	if !strings.Contains(ce.Message, "exceeds read limit") {
+		t.Fatalf("expected catalog_unavailable due to size limit, got message: %s", ce.Message)
+	}
+}
+
+func TestCreateObjectTrimsTypeBeforePersisting(t *testing.T) {
+	svc, _, _ := setupServices(t)
+	created, err := svc.CreateObject(context.Background(), service.ObjectCreateInput{
+		ObjectID:  "obj-1",
+		Type:      "  observation_media  ",
+		OwnerType: "system",
+		OwnerID:   "active_command_catalog",
+		JSON:      model.JSONMap{},
+	})
+	if err != nil {
+		t.Fatalf("create object: %v", err)
+	}
+	if created.Type != "observation_media" {
+		t.Fatalf("expected trimmed type, got %q", created.Type)
+	}
+}
+
+func TestPatchObjectTrimsTypeBeforePersisting(t *testing.T) {
+	svc, stores, _ := setupServices(t)
+	stores.Objects["obj-1"] = model.Object{
+		ObjectID:  "obj-1",
+		Type:      "observation_media",
+		OwnerType: "system",
+		OwnerID:   "active_command_catalog",
+		JSON:      model.JSONMap{},
+	}
+	padded := "  object_manifest  "
+	updated, err := svc.PatchObject(context.Background(), "obj-1", service.ObjectPatchInput{Type: &padded})
+	if err != nil {
+		t.Fatalf("patch object: %v", err)
+	}
+	if updated.Type != "object_manifest" {
+		t.Fatalf("expected trimmed type, got %q", updated.Type)
 	}
 }

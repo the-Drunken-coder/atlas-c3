@@ -50,6 +50,11 @@ func (e *CoreError) Unwrap() error {
 	return e.cause
 }
 
+func (e *CoreError) WithCause(cause error) *CoreError {
+	e.cause = cause
+	return e
+}
+
 func NewCoreError(status int, code, message string, details map[string]any) *CoreError {
 	return &CoreError{StatusCode: status, ErrorCode: code, Message: message, Details: details}
 }

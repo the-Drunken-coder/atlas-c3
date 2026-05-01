@@ -7,6 +7,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +18,19 @@ import (
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/events"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/httpapi"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/service/servicetest"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/sightingcatalog"
 )
 
-func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore, http.Handler) {
+type routerFixture struct {
+	stores *servicetest.MemoryStore
+	router http.Handler
+	files  *objectfiles.Store
+}
+
+func newRouterFixture(t *testing.T, maxUploadBytes int64) routerFixture {
 	t.Helper()
 	cat, err := servicetest.NewDefaultCommandCatalog()
 	if err != nil {
@@ -35,7 +45,11 @@ func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore
 	sightings.Set(sightingcatalog.Catalog{ByKind: map[string]sightingcatalog.Kind{"analysis": {Kind: "analysis", DataSchema: map[string]any{"type": "object", "additionalProperties": true}}}})
 	hub := events.NewHub()
 	svc := service.New(stores, commands, sightings, hub)
-	return stores, httpapi.NewRouter(httpapi.Dependencies{
+	files, err := objectfiles.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return routerFixture{stores: stores, files: files, router: httpapi.NewRouter(httpapi.Dependencies{
 		AllowedOrigins: []string{"http://localhost:5173"},
 		StartedAt:      time.Now().UTC(),
 		MaxUploadBytes: maxUploadBytes,
@@ -43,24 +57,53 @@ func newTestRouter(t *testing.T, maxUploadBytes int64) (*servicetest.MemoryStore
 		Events:         hub,
 		CommandCatalog: commands,
 		ObjectStore:    stores,
+		Files:          files,
 		Readiness: func(_ context.Context) (model.ReadinessResponse, int) {
 			return model.ReadinessResponse{Status: "ready", Timestamp: time.Now().UTC(), Dependencies: map[string]model.DependencyStatus{"postgres": {Status: "ready"}, "object_storage": {Status: "ready"}, "command_catalog": {Status: "ready"}}}, http.StatusOK
 		},
 		Descriptor: func() (model.ServiceDescriptor, error) {
 			return model.ServiceDescriptor{Service: model.ServiceName, Status: "ok", Version: "test", StartedAt: time.Now().UTC(), ActiveCommandCatalogObjectID: cat.ObjectID, Links: map[string]string{"health": "/health"}}, nil
 		},
-	})
+	})}
 }
 
 func testRouter(t *testing.T) http.Handler {
 	t.Helper()
-	_, router := newTestRouter(t, 20*1024*1024)
-	return router
+	return newRouterFixture(t, 20*1024*1024).router
 }
 
-func testUploadRouter(t *testing.T) (*servicetest.MemoryStore, http.Handler) {
+func testUploadRouter(t *testing.T) (*servicetest.MemoryStore, http.Handler, *objectfiles.Store) {
 	t.Helper()
-	return newTestRouter(t, 50)
+	fixture := newRouterFixture(t, 50)
+	return fixture.stores, fixture.router, fixture.files
+}
+
+func assertCleanStagingDir(t *testing.T, files *objectfiles.Store) {
+	t.Helper()
+	root := files.StagingDir()
+	var leftover []string
+	ferr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path != root {
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+			if d.IsDir() {
+				rel += string(filepath.Separator)
+			}
+			leftover = append(leftover, rel)
+		}
+		return nil
+	})
+	if ferr != nil {
+		t.Fatalf("failed to walk staging dir: %v", ferr)
+	}
+	if len(leftover) > 0 {
+		t.Fatalf("staging directory not clean, found files: %v", leftover)
+	}
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -99,7 +142,7 @@ func TestCreateTaskPublishesCreatedResource(t *testing.T) {
 }
 
 func TestObjectFileUploadOversizeReturns413(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	pw, err := mw.CreateFormFile("file", "x.dat")
@@ -122,7 +165,7 @@ func TestObjectFileUploadOversizeReturns413(t *testing.T) {
 }
 
 func TestObjectFileUploadMalformedMultipartReturns400(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", strings.NewReader(""))
 	req.Header.Set("Content-Type", "multipart/form-data")
 	rr := httptest.NewRecorder()
@@ -133,7 +176,7 @@ func TestObjectFileUploadMalformedMultipartReturns400(t *testing.T) {
 }
 
 func TestObjectFileUploadTruncatedMultipartReturns400(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	body := "--testboundary\r\n" +
 		"Content-Disposition: form-data; name=\"file\"; filename=\"x.dat\"\r\n" +
 		"Content-Type: application/octet-stream\r\n\r\nabc"
@@ -147,7 +190,7 @@ func TestObjectFileUploadTruncatedMultipartReturns400(t *testing.T) {
 }
 
 func TestObjectFileUploadRejectsInvalidContentTypeOverride(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	if err := mw.WriteField("content_type", "text/plain\r\nX-Test: injected"); err != nil {
@@ -173,7 +216,7 @@ func TestObjectFileUploadRejectsInvalidContentTypeOverride(t *testing.T) {
 }
 
 func TestObjectFileUploadRejectsLegacyFileIDFormField(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	if err := mw.WriteField("file_id", "f1"); err != nil {
@@ -199,7 +242,7 @@ func TestObjectFileUploadRejectsLegacyFileIDFormField(t *testing.T) {
 }
 
 func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
-	stores, router := testUploadRouter(t)
+	stores, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	pw, err := mw.CreateFormFile("file", "x.dat")
@@ -223,16 +266,40 @@ func TestObjectFileUploadRejectsLateFileIDFormField(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if _, ok := stores.ObjectFiles["f1"]; ok {
+	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected file to be deleted from store after late file_id rejection")
 	}
-	if _, ok := stores.FileBytes["f1"]; ok {
+	if _, ok := stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
 		t.Fatal("expected file bytes to be deleted from store after late file_id rejection")
 	}
 }
 
+func TestObjectFileUploadRejectsOverlongFileIDBeforeStaging(t *testing.T) {
+	_, router, files := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/"+strings.Repeat("x", 51), &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	assertCleanStagingDir(t, files)
+}
+
 func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
-	_, router := testUploadRouter(t)
+	_, router, _ := testUploadRouter(t)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	if err := mw.WriteField("content_type", "text/plain; charset=utf-8"); err != nil {
@@ -264,10 +331,79 @@ func TestObjectFileUploadAcceptsValidContentTypeOverride(t *testing.T) {
 	}
 }
 
+func TestObjectFileUploadFallsBackToDetectedContentType(t *testing.T) {
+	stores, router, _ := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="file"; filename="x.dat"`)
+	pw, err := mw.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	got := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]
+	if got.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type: %q", got.ContentType)
+	}
+}
+
+func TestObjectFileUploadAcceptsMetadataAfterFilePart(t *testing.T) {
+	stores, router, files := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("usage_hint", "thumbnail"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("content_type", "text/plain; charset=utf-8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	got, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]
+	if !ok {
+		t.Fatal("expected object file to be persisted")
+	}
+	if got.UsageHint != "thumbnail" {
+		t.Fatalf("unexpected usage hint: %q", got.UsageHint)
+	}
+	if got.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("unexpected content type: %q", got.ContentType)
+	}
+	assertCleanStagingDir(t, files)
+}
+
 func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) {
-	stores, router := testUploadRouter(t)
-	stores.ObjectFiles["f1"] = model.ObjectFile{FileID: "f1", ObjectID: "obj-1", ContentType: "bad\r\nvalue", SizeBytes: 3}
-	stores.FileBytes["f1"] = []byte("abc")
+	stores, router, _ := testUploadRouter(t)
+	stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = model.ObjectFile{FileID: "f1", ObjectID: "obj-1", ContentType: "bad\r\nvalue", SizeBytes: 3}
+	stores.FileBytes[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}] = []byte("abc")
 	req := httptest.NewRequest(http.MethodGet, "/objects/obj-1/files/f1/content", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -277,4 +413,74 @@ func TestGetObjectFileContentFallsBackForInvalidStoredContentType(t *testing.T) 
 	if got := rr.Header().Get("Content-Type"); got != "application/octet-stream" {
 		t.Fatalf("unexpected content type header: %q", got)
 	}
+}
+
+// Issue #8: a multipart payload with TWO parts after the file part is rejected
+// and no object file ends up persisted. The previous loop-based implementation
+// happened to behave the same way for this case (it returned after the first
+// extra part) — this test pins the behaviour so the simplified implementation
+// can't regress.
+func TestObjectFileUploadRejectsMultipleTrailingParts(t *testing.T) {
+	stores, router, files := testUploadRouter(t)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	pw, err := mw.CreateFormFile("file", "x.dat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("trailing_one", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.WriteField("trailing_two", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var envelope model.ErrorEnvelope
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	fields, _ := envelope.Details["fields"].([]any)
+	if len(fields) == 0 || !strings.Contains(rr.Body.String(), "except usage_hint and content_type") {
+		t.Fatalf("expected trailing-parts error message to mention allowed metadata fields, got %s", rr.Body.String())
+	}
+	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
+		t.Fatal("expected staged file to be removed when extra parts are present")
+	}
+	assertCleanStagingDir(t, files)
+}
+
+// Issue #9: io.Copy errors while draining an extra trailing part are now
+// surfaced via mapMultipartReadError — a truncated trailing part still yields
+// a 400 with no persisted file.
+func TestObjectFileUploadTruncatedTrailingPartReturns400(t *testing.T) {
+	stores, router, files := testUploadRouter(t)
+	// Construct a body where the trailing extra part is truncated mid-data.
+	body := "--testboundary\r\n" +
+		"Content-Disposition: form-data; name=\"file\"; filename=\"x.dat\"\r\n" +
+		"Content-Type: application/octet-stream\r\n\r\nabc\r\n" +
+		"--testboundary\r\n" +
+		"Content-Disposition: form-data; name=\"extra\"\r\n\r\npartial-without-terminator"
+	req := httptest.NewRequest(http.MethodPost, "/objects/obj-1/files/f1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=testboundary")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := stores.ObjectFiles[servicetest.ObjectFileKey{ObjectID: "obj-1", FileID: "f1"}]; ok {
+		t.Fatal("expected no object file to be persisted when trailing part is truncated")
+	}
+	assertCleanStagingDir(t, files)
 }

@@ -4,13 +4,28 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/mediatype"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/model"
+	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/objectfiles"
 	"github.com/the-Drunken-coder/atlas-c3/atlas-core/internal/store"
 )
+
+// ObjectFileKey identifies an object file in MemoryStore. file_id is only
+// unique per object, so the map key is composite. Postgres enforces the same
+// identity via PRIMARY KEY (object_id, file_id) and global path uniqueness
+// via UNIQUE on object_files.path; the in-memory store checks path conflicts
+// separately so test and production semantics stay aligned.
+type ObjectFileKey struct {
+	ObjectID string
+	FileID   string
+}
 
 type MemoryStore struct {
 	mu           sync.RWMutex
@@ -18,8 +33,8 @@ type MemoryStore struct {
 	Observations map[string]model.Observation
 	Tasks        map[string]model.Task
 	Objects      map[string]model.Object
-	ObjectFiles  map[string]model.ObjectFile
-	FileBytes    map[string][]byte
+	ObjectFiles  map[ObjectFileKey]model.ObjectFile
+	FileBytes    map[ObjectFileKey][]byte
 	Ready        model.DependencyStatus
 }
 
@@ -29,8 +44,8 @@ func NewMemoryStore() *MemoryStore {
 		Observations: map[string]model.Observation{},
 		Tasks:        map[string]model.Task{},
 		Objects:      map[string]model.Object{},
-		ObjectFiles:  map[string]model.ObjectFile{},
-		FileBytes:    map[string][]byte{},
+		ObjectFiles:  map[ObjectFileKey]model.ObjectFile{},
+		FileBytes:    map[ObjectFileKey][]byte{},
 		Ready:        model.DependencyStatus{Status: "ready"},
 	}
 }
@@ -143,6 +158,8 @@ func (m *MemoryStore) ListObservations(_ context.Context, filter store.Observati
 		if filter.SourceAssetID != "" && item.SourceAssetID != filter.SourceAssetID {
 			continue
 		}
+		// Match Postgres' `updated_at >= $N` (inclusive) — skip only rows
+		// strictly before the cutoff, so equal-timestamp rows are returned.
 		if filter.UpdatedAfter != "" && item.UpdatedAt.Before(updatedAfter) {
 			continue
 		}
@@ -175,10 +192,10 @@ func (m *MemoryStore) DeleteObservation(_ context.Context, id string) error {
 	for objectID, object := range m.Objects {
 		if object.OwnerType == "observation" && object.OwnerID == id {
 			delete(m.Objects, objectID)
-			for fileID, file := range m.ObjectFiles {
+			for key, file := range m.ObjectFiles {
 				if file.ObjectID == objectID {
-					delete(m.ObjectFiles, fileID)
-					delete(m.FileBytes, fileID)
+					delete(m.ObjectFiles, key)
+					delete(m.FileBytes, key)
 				}
 			}
 		}
@@ -318,10 +335,10 @@ func (m *MemoryStore) DeleteObject(_ context.Context, id string) error {
 		return model.NotFound("object", id)
 	}
 	delete(m.Objects, id)
-	for fileID, file := range m.ObjectFiles {
+	for key, file := range m.ObjectFiles {
 		if file.ObjectID == id {
-			delete(m.ObjectFiles, fileID)
-			delete(m.FileBytes, fileID)
+			delete(m.ObjectFiles, key)
+			delete(m.FileBytes, key)
 		}
 	}
 	return nil
@@ -332,15 +349,75 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if _, ok := m.Objects[input.File.ObjectID]; !ok {
 		return model.ObjectFile{}, model.NotFound("object", input.File.ObjectID)
 	}
-	if _, ok := m.ObjectFiles[input.File.FileID]; ok {
-		return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
-	}
-	limit := memUploadLimit(input.MaxBytes)
-	lr := &io.LimitedReader{R: input.Reader, N: limit + 1}
-	bytesValue, err := io.ReadAll(lr)
-	if err != nil {
+	// Validate the path segments before any I/O. Postgres performs this via
+	// objectfiles.Store.LogicalPath; the in-memory store must agree so that
+	// invalid IDs are rejected the same way in both backends.
+	if err := objectfiles.ValidateObjectFilePathSegments(input.File.ObjectID, input.File.FileID); err != nil {
 		return model.ObjectFile{}, err
 	}
+	logicalPath := filepath.ToSlash(filepath.Join("objects", input.File.ObjectID, input.File.FileID))
+	key := ObjectFileKey{ObjectID: input.File.ObjectID, FileID: input.File.FileID}
+	if _, ok := m.ObjectFiles[key]; ok {
+		return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
+	}
+	// Global path uniqueness — mirrors `path text NOT NULL UNIQUE` in the
+	// Postgres schema. Two different (object_id, file_id) pairs can produce
+	// the same path only if a caller bypasses LogicalPath, but checking
+	// defensively here keeps the test store honest.
+	for _, existing := range m.ObjectFiles {
+		if existing.Path == logicalPath {
+			return model.ObjectFile{}, model.Conflict("object_file", input.File.FileID, "already_exists", nil)
+		}
+	}
+	var bytesValue []byte
+	var err error
+	if input.PreStagedPath != "" {
+		limit := memUploadLimit(input.MaxBytes)
+		if input.PreStagedSizeBytes < 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size must not be negative"})
+		}
+		info, lerr := os.Lstat(input.PreStagedPath)
+		if lerr != nil {
+			return model.ObjectFile{}, lerr
+		}
+		resolvedPath, info, lerr := validatePreStagedPath(input.PreStagedPath, info)
+		if lerr != nil {
+			return model.ObjectFile{}, lerr
+		}
+		defer func() { _ = objectfiles.CleanupStagedPath(resolvedPath, stagingDirForPath(resolvedPath)) }()
+		f, openErr := os.Open(resolvedPath)
+		if openErr != nil {
+			return model.ObjectFile{}, openErr
+		}
+		defer func() { _ = f.Close() }()
+		if info.Size() != input.PreStagedSizeBytes {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged size does not match file"})
+		}
+		if info.Size() == 0 {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
+		}
+		if info.Size() > limit {
+			return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
+		}
+		lr := &io.LimitedReader{R: f, N: info.Size() + 1}
+		bytesValue, err = io.ReadAll(lr)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+		if int64(len(bytesValue)) != info.Size() {
+			return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged file size changed during read"})
+		}
+		// Cleanup of the pre-staged file is handled by the deferred removal at
+		// the top of CreateObjectFile, which fires on every return path.
+	} else {
+		limit := memUploadLimit(input.MaxBytes)
+		lr := &io.LimitedReader{R: input.Reader, N: limit + 1}
+		bytesValue, err = io.ReadAll(lr)
+		if err != nil {
+			return model.ObjectFile{}, err
+		}
+	}
+	limit := memUploadLimit(input.MaxBytes)
 	if int64(len(bytesValue)) == 0 {
 		return model.ObjectFile{}, model.ValidationError(model.FieldError{Field: "file", Code: "required", Message: "file bytes are required"})
 	}
@@ -348,9 +425,13 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 		return model.ObjectFile{}, model.PayloadTooLarge("upload exceeds configured limit")
 	}
 	file := input.File
-	file.Path = "objects/" + file.ObjectID + "/" + file.FileID
+	file.Path = logicalPath
 	file.SizeBytes = int64(len(bytesValue))
-	if file.ContentType == "" {
+	if normalized, valid := mediatype.NormalizeContentType(file.ContentType); valid && strings.TrimSpace(file.ContentType) != "" {
+		file.ContentType = normalized
+	} else if input.PreStagedPath != "" {
+		file.ContentType, _ = mediatype.NormalizeContentType(input.PreStagedContentType)
+	} else {
 		file.ContentType = "application/octet-stream"
 	}
 	now := time.Now().UTC()
@@ -360,14 +441,15 @@ func (m *MemoryStore) CreateObjectFile(_ context.Context, input store.ObjectUplo
 	if file.UpdatedAt.IsZero() {
 		file.UpdatedAt = now
 	}
-	m.ObjectFiles[file.FileID] = file
-	m.FileBytes[file.FileID] = bytesValue
+	m.ObjectFiles[key] = file
+	m.FileBytes[key] = bytesValue
 	return file, nil
 }
 func (m *MemoryStore) GetObjectFile(_ context.Context, objectID, fileID string) (model.ObjectFile, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, model.NotFound("object_file", fileID)
 	}
@@ -376,7 +458,8 @@ func (m *MemoryStore) GetObjectFile(_ context.Context, objectID, fileID string) 
 func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID string, reader io.Reader, maxBytes int64) (model.ObjectFile, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, model.NotFound("object_file", fileID)
 	}
@@ -392,30 +475,32 @@ func (m *MemoryStore) AppendObjectFile(_ context.Context, objectID, fileID strin
 	if int64(len(bytesValue)) > limit {
 		return model.ObjectFile{}, model.PayloadTooLarge("append exceeds configured limit")
 	}
-	m.FileBytes[fileID] = append(m.FileBytes[fileID], bytesValue...)
-	file.SizeBytes = int64(len(m.FileBytes[fileID]))
+	m.FileBytes[key] = append(m.FileBytes[key], bytesValue...)
+	file.SizeBytes = int64(len(m.FileBytes[key]))
 	file.UpdatedAt = time.Now().UTC()
-	m.ObjectFiles[fileID] = file
+	m.ObjectFiles[key] = file
 	return file, nil
 }
 func (m *MemoryStore) OpenObjectFile(_ context.Context, objectID, fileID string) (model.ObjectFile, io.ReadCloser, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.ObjectFile{}, nil, model.NotFound("object_file", fileID)
 	}
-	return file, io.NopCloser(bytes.NewReader(m.FileBytes[fileID])), nil
+	return file, io.NopCloser(bytes.NewReader(m.FileBytes[key])), nil
 }
 func (m *MemoryStore) DeleteObjectFile(_ context.Context, objectID, fileID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	file, ok := m.ObjectFiles[fileID]
+	key := ObjectFileKey{ObjectID: objectID, FileID: fileID}
+	file, ok := m.ObjectFiles[key]
 	if !ok || file.ObjectID != objectID {
 		return model.NotFound("object_file", fileID)
 	}
-	delete(m.ObjectFiles, fileID)
-	delete(m.FileBytes, fileID)
+	delete(m.ObjectFiles, key)
+	delete(m.FileBytes, key)
 	return nil
 }
 func (m *MemoryStore) ListObjectFilesForObject(_ context.Context, objectID string) ([]model.ObjectFile, error) {
@@ -434,7 +519,7 @@ func (m *MemoryStore) StorageStatus(context.Context) model.DependencyStatus { re
 func (m *MemoryStore) GetFullQueryState(_ context.Context) (store.QueryState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return store.QueryState{Entities: values(m.Entities), Observations: values(m.Observations), Tasks: values(m.Tasks), Objects: values(m.Objects), ObjectFiles: values(m.ObjectFiles)}, nil
+	return store.QueryState{Entities: values(m.Entities), Observations: values(m.Observations), Tasks: values(m.Tasks), Objects: values(m.Objects), ObjectFiles: objectFileValues(m.ObjectFiles)}, nil
 }
 
 func paginate[T any](items []T, pagination model.Pagination) []T {
@@ -446,6 +531,81 @@ func paginate[T any](items []T, pagination model.Pagination) []T {
 		end = len(items)
 	}
 	return append([]T(nil), items[pagination.Offset:end]...)
+}
+
+func objectFileValues(input map[ObjectFileKey]model.ObjectFile) []model.ObjectFile {
+	out := make([]model.ObjectFile, 0, len(input))
+	for _, value := range input {
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		if out[i].ObjectID != out[j].ObjectID {
+			return out[i].ObjectID < out[j].ObjectID
+		}
+		return out[i].FileID < out[j].FileID
+	})
+	return out
+}
+
+func stagingDirForPath(path string) string {
+	for dir := filepath.Dir(path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "staging" {
+			return dir
+		}
+	}
+	return ""
+}
+
+func validatePreStagedPath(preStagedPath string, info os.FileInfo) (string, os.FileInfo, error) {
+	absPath, absErr := filepath.Abs(preStagedPath)
+	if absErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	stagingDir := stagingDirForPath(absPath)
+	if stagingDir == "" {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+	}
+	absStaging, stagingAbsErr := filepath.Abs(stagingDir)
+	if stagingAbsErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	resolvedStaging, resolveStagingErr := filepath.EvalSymlinks(absStaging)
+	if resolveStagingErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must not be a symbolic link"})
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be a regular file"})
+	}
+	resolvedParent, resolveParentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if resolveParentErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	resolvedPath := filepath.Join(resolvedParent, filepath.Base(absPath))
+	withinStaging, relErr := pathWithinDir(resolvedStaging, resolvedPath)
+	if relErr != nil {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path could not be resolved"})
+	}
+	if !withinStaging {
+		return "", nil, model.ValidationError(model.FieldError{Field: "pre_staged", Code: "invalid_value", Message: "pre-staged path must be within the staging directory"})
+	}
+	return resolvedPath, info, nil
+}
+
+func pathWithinDir(dir, path string) (bool, error) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false, err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func values[T any](input map[string]T) []T {

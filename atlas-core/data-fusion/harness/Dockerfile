@@ -1,4 +1,5 @@
 FROM python:3.12-slim
+LABEL atlas.core.project=atlas-core
 # The harness has no persistent volume, so we can simply create the unprivileged
 # user, chown /app at build time, and drop to USER 10001 before CMD runs.
 RUN groupadd --system --gid 10001 atlas \
