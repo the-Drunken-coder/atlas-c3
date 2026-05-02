@@ -80,7 +80,6 @@ func main() {
 		Addr:              fmt.Sprintf("%s:%d", atlas.Config.Host, atlas.Config.Port),
 		Handler:           atlas.Router,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
 	go func() {

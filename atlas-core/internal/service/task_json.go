@@ -84,9 +84,6 @@ func deepCloneStringAnyMap(m map[string]any) (map[string]any, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("unmarshal json map: %w", err)
 	}
-	if out == nil {
-		return map[string]any{}, nil
-	}
 	return out, nil
 }
 

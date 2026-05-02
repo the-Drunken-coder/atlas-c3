@@ -209,6 +209,18 @@ func (a *Active) Get() (Catalog, bool) {
 	return a.catalog.Clone(), true
 }
 
+func (a *Active) RunWhileObjectInactive(objectID string, fn func() error) error {
+	if a == nil {
+		return fn()
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.ready && a.catalog.ObjectID == objectID {
+		return model.Conflict("object", objectID, "protected", map[string]any{"owner_type": "system", "owner_id": "active_command_catalog"})
+	}
+	return fn()
+}
+
 func Materialize(ctx context.Context, stores store.ObjectStore, catalog Catalog) (Catalog, error) {
 	objectJSON := model.JSONMap{"catalog_id": catalog.CatalogID, "version": catalog.Version}
 	now := time.Now().UTC()

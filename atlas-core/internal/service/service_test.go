@@ -183,6 +183,17 @@ func TestDeleteObjectRejectsActiveCommandCatalog(t *testing.T) {
 	}
 }
 
+func TestDeleteObjectAllowsInactiveSystemCatalogObject(t *testing.T) {
+	svc, stores, _ := setupServices(t)
+	stores.Objects["catalog-old"] = model.Object{ObjectID: "catalog-old", Type: "command_catalog", OwnerType: "system", OwnerID: "active_command_catalog", JSON: model.JSONMap{}}
+	if err := svc.DeleteObject(context.Background(), "catalog-old"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := stores.Objects["catalog-old"]; ok {
+		t.Fatal("expected inactive catalog object to be deleted")
+	}
+}
+
 func TestTransitionTaskStatusIdempotent(t *testing.T) {
 	svc, stores, catalogID := setupServices(t)
 	stores.Tasks["task-1"] = model.Task{TaskID: "task-1", Status: "pending", AssetID: "asset-1", CommandCatalogObjectID: catalogID, JSON: model.JSONMap{"components": map[string]any{"command": map[string]any{"type": "move_to_location"}, "parameters": map[string]any{"latitude": 1.0}}}}

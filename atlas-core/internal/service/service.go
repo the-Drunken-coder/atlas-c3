@@ -394,10 +394,9 @@ func (s *Services) PatchObject(ctx context.Context, id string, patch ObjectPatch
 }
 
 func (s *Services) DeleteObject(ctx context.Context, id string) error {
-	if active, ok := s.commands.Get(); ok && active.ObjectID == id {
-		return model.Conflict("object", id, "protected", map[string]any{"owner_type": "system", "owner_id": "active_command_catalog"})
-	}
-	if err := s.stores.DeleteObject(ctx, id); err != nil {
+	if err := s.commands.RunWhileObjectInactive(id, func() error {
+		return s.stores.DeleteObject(ctx, id)
+	}); err != nil {
 		return err
 	}
 	s.publish(ctx, "object", "deleted", id, model.DeleteEventData{DeletedAt: s.now()})

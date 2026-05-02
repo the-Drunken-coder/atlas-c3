@@ -137,9 +137,21 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-func (rw *responseWriter) Flush() {
-	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
+func unwrapResponseWriter(w http.ResponseWriter) http.ResponseWriter {
+	for {
+		unwrapper, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return w
+		}
+		next := unwrapper.Unwrap()
+		if next == nil || next == w {
+			return w
+		}
+		w = next
 	}
 }
 
@@ -880,18 +892,18 @@ func (r *Router) handleFullQuery(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) handleStream(w http.ResponseWriter, req *http.Request) {
-	flusher, ok := w.(http.Flusher)
+	flusher, ok := unwrapResponseWriter(w).(http.Flusher)
 	if !ok {
 		r.writeError(w, req, model.InternalError("streaming unsupported", nil))
 		return
 	}
+	ch, cancel := r.deps.Events.Subscribe()
+	defer cancel()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	_, _ = w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
-	ch, cancel := r.deps.Events.Subscribe()
-	defer cancel()
 	keepAlive := time.NewTicker(15 * time.Second)
 	defer keepAlive.Stop()
 	for {

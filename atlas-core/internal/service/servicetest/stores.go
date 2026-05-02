@@ -353,9 +353,6 @@ func (m *MemoryStore) DeleteObject(_ context.Context, id string) error {
 			return model.Conflict("object", id, "referenced", map[string]any{"dependent_resource_type": "task"})
 		}
 	}
-	if object := m.Objects[id]; object.OwnerType == "system" && object.OwnerID == "active_command_catalog" {
-		return model.Conflict("object", id, "protected", map[string]any{"owner_type": "system", "owner_id": "active_command_catalog"})
-	}
 	delete(m.Objects, id)
 	for key, file := range m.ObjectFiles {
 		if file.ObjectID == id {

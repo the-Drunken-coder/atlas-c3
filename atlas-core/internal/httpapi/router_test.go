@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,13 +30,46 @@ type routerFixture struct {
 	stores *servicetest.MemoryStore
 	router http.Handler
 	files  *objectfiles.Store
+	hub    *events.Hub
 }
 
 type flushingRecorder struct {
 	*httptest.ResponseRecorder
+	flushCount atomic.Int32
 }
 
-func (r flushingRecorder) Flush() {}
+func (r *flushingRecorder) Flush() {
+	r.flushCount.Add(1)
+}
+
+type gatedRecorder struct {
+	*flushingRecorder
+	firstWriteStarted chan struct{}
+	releaseFirstWrite chan struct{}
+	eventWritten      chan struct{}
+	firstWriteOnce    sync.Once
+	eventOnce         sync.Once
+}
+
+func newGatedRecorder() *gatedRecorder {
+	return &gatedRecorder{
+		flushingRecorder:  &flushingRecorder{ResponseRecorder: httptest.NewRecorder()},
+		firstWriteStarted: make(chan struct{}),
+		releaseFirstWrite: make(chan struct{}),
+		eventWritten:      make(chan struct{}),
+	}
+}
+
+func (r *gatedRecorder) Write(p []byte) (int, error) {
+	if bytes.HasPrefix(p, []byte(": connected\n\n")) {
+		r.firstWriteOnce.Do(func() { close(r.firstWriteStarted) })
+		<-r.releaseFirstWrite
+	}
+	if bytes.HasPrefix(p, []byte("event: ")) {
+		r.eventOnce.Do(func() { close(r.eventWritten) })
+	}
+	return r.ResponseRecorder.Write(p)
+}
 
 func newRouterFixture(t *testing.T, maxUploadBytes int64) routerFixture {
 	t.Helper()
@@ -55,7 +90,7 @@ func newRouterFixture(t *testing.T, maxUploadBytes int64) routerFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return routerFixture{stores: stores, files: files, router: httpapi.NewRouter(httpapi.Dependencies{
+	return routerFixture{stores: stores, files: files, hub: hub, router: httpapi.NewRouter(httpapi.Dependencies{
 		AllowedOrigins: []string{"http://localhost:5173"},
 		StartedAt:      time.Now().UTC(),
 		MaxUploadBytes: maxUploadBytes,
@@ -520,7 +555,7 @@ func TestStreamFlushesImmediatelyAfterConnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req := httptest.NewRequest(http.MethodGet, "/stream/changes", nil).WithContext(ctx)
-	rr := flushingRecorder{ResponseRecorder: httptest.NewRecorder()}
+	rr := &flushingRecorder{ResponseRecorder: httptest.NewRecorder()}
 	done := make(chan struct{})
 	go func() {
 		fixture.router.ServeHTTP(rr, req)
@@ -531,5 +566,48 @@ func TestStreamFlushesImmediatelyAfterConnect(t *testing.T) {
 	<-done
 	if !strings.HasPrefix(rr.Body.String(), ": connected\n\n") {
 		t.Fatalf("expected initial SSE flush, got %q", rr.Body.String())
+	}
+	if rr.flushCount.Load() == 0 {
+		t.Fatal("expected stream handler to call Flush")
+	}
+}
+
+func TestStreamSubscribesBeforeInitialConnectedWrite(t *testing.T) {
+	fixture := newRouterFixture(t, 20*1024*1024)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/stream/changes", nil).WithContext(ctx)
+	rr := newGatedRecorder()
+	done := make(chan struct{})
+	go func() {
+		fixture.router.ServeHTTP(rr, req)
+		close(done)
+	}()
+	select {
+	case <-rr.firstWriteStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial stream write")
+	}
+	event := model.EventEnvelope{
+		EventID:      "evt-1",
+		Type:         "object.updated",
+		ResourceType: "object",
+		ResourceID:   "obj-1",
+		Mutation:     "update",
+		OccurredAt:   time.Now().UTC(),
+	}
+	if err := fixture.hub.Publish(context.Background(), event); err != nil {
+		t.Fatalf("publish event: %v", err)
+	}
+	close(rr.releaseFirstWrite)
+	select {
+	case <-rr.eventWritten:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event write")
+	}
+	cancel()
+	<-done
+	if body := rr.Body.String(); !strings.Contains(body, "event: object.updated\n") {
+		t.Fatalf("expected queued event to reach stream client, got %q", body)
 	}
 }
