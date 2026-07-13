@@ -279,6 +279,20 @@ func (m *MemoryStore) CreateObject(_ context.Context, item model.Object) (model.
 	if _, ok := m.Objects[item.ObjectID]; ok {
 		return model.Object{}, model.Conflict("object", item.ObjectID, "already_exists", nil)
 	}
+	switch item.OwnerType {
+	case "entity":
+		if _, ok := m.Entities[item.OwnerID]; !ok {
+			return model.Object{}, model.NotFound("entity", item.OwnerID)
+		}
+	case "observation":
+		if _, ok := m.Observations[item.OwnerID]; !ok {
+			return model.Object{}, model.NotFound("observation", item.OwnerID)
+		}
+	case "task":
+		if _, ok := m.Tasks[item.OwnerID]; !ok {
+			return model.Object{}, model.NotFound("task", item.OwnerID)
+		}
+	}
 	m.Objects[item.ObjectID] = item
 	return item, nil
 }
@@ -524,7 +538,35 @@ func (m *MemoryStore) StorageStatus(context.Context) model.DependencyStatus { re
 func (m *MemoryStore) GetFullQueryState(_ context.Context) (store.QueryState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return store.QueryState{Entities: values(m.Entities), Observations: values(m.Observations), Tasks: values(m.Tasks), Objects: values(m.Objects), ObjectFiles: objectFileValues(m.ObjectFiles)}, nil
+	entities := values(m.Entities)
+	sort.Slice(entities, func(i, j int) bool {
+		if entities[i].UpdatedAt.Equal(entities[j].UpdatedAt) {
+			return entities[i].EntityID < entities[j].EntityID
+		}
+		return entities[i].UpdatedAt.After(entities[j].UpdatedAt)
+	})
+	observations := values(m.Observations)
+	sort.Slice(observations, func(i, j int) bool {
+		if observations[i].UpdatedAt.Equal(observations[j].UpdatedAt) {
+			return observations[i].ObservationID < observations[j].ObservationID
+		}
+		return observations[i].UpdatedAt.After(observations[j].UpdatedAt)
+	})
+	tasks := values(m.Tasks)
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].UpdatedAt.Equal(tasks[j].UpdatedAt) {
+			return tasks[i].TaskID < tasks[j].TaskID
+		}
+		return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt)
+	})
+	objects := values(m.Objects)
+	sort.Slice(objects, func(i, j int) bool {
+		if objects[i].UpdatedAt.Equal(objects[j].UpdatedAt) {
+			return objects[i].ObjectID < objects[j].ObjectID
+		}
+		return objects[i].UpdatedAt.After(objects[j].UpdatedAt)
+	})
+	return store.QueryState{Entities: entities, Observations: observations, Tasks: tasks, Objects: objects, ObjectFiles: objectFileValues(m.ObjectFiles)}, nil
 }
 
 func paginate[T any](items []T, pagination model.Pagination) []T {

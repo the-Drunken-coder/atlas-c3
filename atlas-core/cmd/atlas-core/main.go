@@ -76,7 +76,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer atlas.Close()
-	server := &http.Server{Addr: fmt.Sprintf("%s:%d", atlas.Config.Host, atlas.Config.Port), Handler: atlas.Router, ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", atlas.Config.Host, atlas.Config.Port),
+		Handler:           atlas.Router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

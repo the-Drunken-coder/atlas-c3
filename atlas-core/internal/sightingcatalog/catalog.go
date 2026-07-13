@@ -139,7 +139,14 @@ func ValidateSighting(active Catalog, sighting any) error {
 			return model.ValidationError(*err)
 		}
 	}
-	kind, _ := sightingMap["kind"].(string)
+	rawKind, present := sightingMap["kind"]
+	if !present {
+		return model.ValidationError(model.FieldError{Field: "json.latest_sighting.kind", Code: "required", Message: "kind is required"})
+	}
+	kind, ok := rawKind.(string)
+	if !ok {
+		return model.ValidationError(model.FieldError{Field: "json.latest_sighting.kind", Code: "invalid_type", Message: "kind must be a string"})
+	}
 	if kind == "" {
 		return model.ValidationError(model.FieldError{Field: "json.latest_sighting.kind", Code: "required", Message: "kind is required"})
 	}

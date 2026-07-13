@@ -18,7 +18,7 @@
               "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
               "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
               "altitude_m": { "type": "number" },
-              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+)?[0-9]+(\\.[0-9]+)?$" }
             }
           },
           "speed_m_s": { "type": "number" },
@@ -44,7 +44,7 @@
             "additionalProperties": false,
             "properties": {
               "deg": { "type": "number", "minimum": 0, "maximum": 360 },
-              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+               "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+)?[0-9]+(\\.[0-9]+)?$" }
             }
           },
           "elevation": {
@@ -53,7 +53,7 @@
             "additionalProperties": false,
             "properties": {
               "deg": { "type": "number", "minimum": -90, "maximum": 90 },
-              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+               "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+)?[0-9]+(\\.[0-9]+)?$" }
             }
           },
           "range": {
@@ -62,7 +62,7 @@
             "additionalProperties": false,
             "properties": {
               "m": { "type": "number", "minimum": 0 },
-              "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+|-)[0-9]+(\\.[0-9]+)?$" }
+               "inaccuracy": { "type": "string", "pattern": "^(\\+-|\\+)?[0-9]+(\\.[0-9]+)?$" }
             }
           }
         }

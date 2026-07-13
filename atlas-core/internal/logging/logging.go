@@ -42,10 +42,16 @@ func (l *Logger) Component(component string) *slog.Logger {
 }
 
 func (l *Logger) WithRequest(ctx context.Context, requestID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return context.WithValue(ctx, requestIDKey{}, requestID)
 }
 
 func RequestID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
 	value, _ := ctx.Value(requestIDKey{}).(string)
 	return value
 }

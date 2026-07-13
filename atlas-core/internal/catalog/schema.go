@@ -129,6 +129,20 @@ func isJSONNumberKeyword(v any) bool {
 }
 
 func appendSchemaKeywordValueErrors(schema map[string]any, path string, fields *[]model.FieldError) {
+	if v, ok := schema["required"]; ok {
+		switch arr := v.(type) {
+		case []any:
+			for _, member := range arr {
+				if _, ok := member.(string); !ok {
+					*fields = append(*fields, model.FieldError{Field: path + ".required", Code: "invalid_type", Message: "required must be an array of strings"})
+					break
+				}
+			}
+		case []string:
+		default:
+			*fields = append(*fields, model.FieldError{Field: path + ".required", Code: "invalid_type", Message: "required must be an array of strings"})
+		}
+	}
 	if v, ok := schema["minimum"]; ok {
 		if !isJSONNumberKeyword(v) {
 			*fields = append(*fields, model.FieldError{Field: path + ".minimum", Code: "invalid_type", Message: "minimum must be a number"})
@@ -253,7 +267,7 @@ func ValidateSchema(schema map[string]any, path string) error {
 				}
 			}
 		}
-		if items := schema["items"]; items != nil {
+		if _, hasItems := schema["items"]; hasItems {
 			fields = append(fields, model.FieldError{Field: path + ".items", Code: "invalid_value", Message: "items not allowed on object schema"})
 		}
 	case "array":

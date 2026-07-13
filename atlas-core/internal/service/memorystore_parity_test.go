@@ -214,3 +214,34 @@ func TestMemoryStoreGetFullQueryStateOrdersObjectFilesLikePostgres(t *testing.T)
 		}
 	}
 }
+
+func TestMemoryStoreGetFullQueryStateOrdersRecordsLikePostgres(t *testing.T) {
+	mem := servicetest.NewMemoryStore()
+	older := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Minute)
+	mem.Entities["b"] = model.Entity{EntityID: "b", UpdatedAt: older}
+	mem.Entities["a"] = model.Entity{EntityID: "a", UpdatedAt: newer}
+	mem.Observations["b"] = model.Observation{ObservationID: "b", UpdatedAt: older}
+	mem.Observations["a"] = model.Observation{ObservationID: "a", UpdatedAt: newer}
+	mem.Tasks["b"] = model.Task{TaskID: "b", UpdatedAt: older}
+	mem.Tasks["a"] = model.Task{TaskID: "a", UpdatedAt: newer}
+	mem.Objects["b"] = model.Object{ObjectID: "b", UpdatedAt: older}
+	mem.Objects["a"] = model.Object{ObjectID: "a", UpdatedAt: newer}
+
+	state, err := mem.GetFullQueryState(context.Background())
+	if err != nil {
+		t.Fatalf("full query state: %v", err)
+	}
+	if got := []string{state.Entities[0].EntityID, state.Entities[1].EntityID}; got[0] != "a" || got[1] != "b" {
+		t.Fatalf("unexpected entity order: %v", got)
+	}
+	if got := []string{state.Observations[0].ObservationID, state.Observations[1].ObservationID}; got[0] != "a" || got[1] != "b" {
+		t.Fatalf("unexpected observation order: %v", got)
+	}
+	if got := []string{state.Tasks[0].TaskID, state.Tasks[1].TaskID}; got[0] != "a" || got[1] != "b" {
+		t.Fatalf("unexpected task order: %v", got)
+	}
+	if got := []string{state.Objects[0].ObjectID, state.Objects[1].ObjectID}; got[0] != "a" || got[1] != "b" {
+		t.Fatalf("unexpected object order: %v", got)
+	}
+}

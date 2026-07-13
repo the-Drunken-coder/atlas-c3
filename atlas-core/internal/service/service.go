@@ -394,7 +394,9 @@ func (s *Services) PatchObject(ctx context.Context, id string, patch ObjectPatch
 }
 
 func (s *Services) DeleteObject(ctx context.Context, id string) error {
-	if err := s.stores.DeleteObject(ctx, id); err != nil {
+	if err := s.commands.RunWhileObjectInactive(id, func() error {
+		return s.stores.DeleteObject(ctx, id)
+	}); err != nil {
 		return err
 	}
 	s.publish(ctx, "object", "deleted", id, model.DeleteEventData{DeletedAt: s.now()})

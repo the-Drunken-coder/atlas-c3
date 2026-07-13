@@ -1,6 +1,6 @@
 # Atlas Core — Implementation vs Documentation Audit
 
-Generated from a 16-agent cross-validation comparing `copilot/atlas-core-follow-up` implementation against all contracts and build plan docs.
+Generated from a 16-agent cross-validation comparing `copilot/atlas-core-follow-up` implementation against all contracts and build plan docs. This is a point-in-time audit snapshot, not a live source of truth.
 
 ## Methodology
 
@@ -9,6 +9,11 @@ For each topic area, two subagents independently compared the work from opposite
 - **Docs→Impl**: read the documentation first, then checked against implementation
 
 This cross-validation catches gaps that a single-direction comparison might miss.
+
+Reproducibility / counting notes:
+- Re-verify every cited line against current `HEAD` before making changes; some findings may already be fixed or may have moved.
+- Counts below are issue entries, not deduplicated root causes. A single defect may appear in multiple handlers, files, or contract sections.
+- Severity is triage guidance, not proof of exploitability. Prioritize items that are still reproducible on the current branch.
 
 ---
 
@@ -205,6 +210,8 @@ This cross-validation catches gaps that a single-direction comparison might miss
 
 ## Totals
 
+These totals are raw audit-entry counts from the snapshot above. They are useful for rough scoping, but not for measuring remaining work after fixes unless the list is first re-triaged against the current branch and deduplicated.
+
 | Severity | Count |
 |----------|-------|
 | High | 28 |
@@ -213,6 +220,11 @@ This cross-validation catches gaps that a single-direction comparison might miss
 | **Total** | **86** |
 
 ## Highest-Concentration Problem Areas
+
+Suggested triage order:
+1. Confirm which high-severity items still reproduce on the current branch.
+2. Group fixes by shared root cause (for example: HTTP field parsing, store race/error mapping, catalog/schema validation).
+3. Recount after each triage pass instead of treating the snapshot totals as a live backlog.
 
 1. **Service Layer** — Task immutability, PATCH semantics, file→object `updated_at` cascading, validation gaps
 2. **Observability** — Entire contract barely followed; missing `event`, `correlation_id`, lifecycle logging, duration fields

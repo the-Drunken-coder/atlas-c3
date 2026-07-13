@@ -178,3 +178,19 @@ func TestValidateSchemaRejectsNegativeIntegerBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSchemaRejectsNonStringRequiredEntries(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "object", "required": []any{"ok", 1}}, "schema")
+	if err == nil {
+		t.Fatal("expected required typing error")
+	}
+	assertHasFieldError(t, err, "schema.required", "invalid_type")
+}
+
+func TestValidateSchemaRejectsItemsOnObjectWhenNull(t *testing.T) {
+	err := ValidateSchema(map[string]any{"type": "object", "items": nil}, "schema")
+	if err == nil {
+		t.Fatal("expected items-on-object error")
+	}
+	assertHasFieldError(t, err, "schema.items", "invalid_value")
+}
