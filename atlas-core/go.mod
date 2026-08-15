@@ -3,8 +3,8 @@ module github.com/the-Drunken-coder/atlas-c3/atlas-core
 go 1.25.0
 
 require (
-	github.com/jackc/pgx/v5 v5.9.2
-	golang.org/x/sys v0.30.0
+	github.com/jackc/pgx/v5 v5.10.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
