@@ -29,7 +29,7 @@ Objects are the authoritative owners of relationship links to records that use t
 
 Required capabilities:
 
-- upload object file with caller-supplied `file_id`
+- upload object file with caller-supplied `file_id` from the HTTP path
 - append bytes to an existing object file
 - create object file metadata
 - read object file metadata

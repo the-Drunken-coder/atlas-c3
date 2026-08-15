@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:17.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-atlas_core}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD see env example}
+    ports:
+      - "${ATLAS_CORE_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - atlas-core-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    labels:
+      atlas.core.project: "atlas-core"
+      atlas.core.resource: "postgres"
+
+  atlas-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ATLAS_CORE_HOST: 0.0.0.0
+      ATLAS_CORE_PORT: "8080"
+      ATLAS_CORE_DATABASE_URL: ${ATLAS_CORE_DATABASE_URL:?set ATLAS_CORE_DATABASE_URL in .env — use host postgres from this compose network; percent-encode password in userinfo}
+      ATLAS_CORE_OBJECT_STORAGE_ROOT: /data/object-storage
+      ATLAS_CORE_COMMAND_CATALOG_PATH: /app/command-catalog/catalog.json
+      ATLAS_CORE_SIGHTING_CATALOG_PATH: /app/sighting-catalog/catalog.json
+      ATLAS_CORE_ALLOWED_ORIGINS: ${ATLAS_CORE_ALLOWED_ORIGINS:-http://localhost:5173}
+      ATLAS_CORE_LOG_LEVEL: ${ATLAS_CORE_LOG_LEVEL:-info}
+      ATLAS_DATA_FUSION_STACK: ${ATLAS_DATA_FUSION_STACK:-}
+    ports:
+      - "${ATLAS_CORE_HOST_PORT:-8080}:8080"
+    volumes:
+      - atlas-core-object-storage:/data/object-storage
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "-qO-", "http://127.0.0.1:8080/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    labels:
+      atlas.core.project: "atlas-core"
+      atlas.core.resource: "atlas-core"
+
+  atlas-data-fusion:
+    profiles: ["fusion"]
+    build:
+      context: .
+      dockerfile: data-fusion/harness/Dockerfile
+    depends_on:
+      atlas-core:
+        condition: service_healthy
+    environment:
+      ATLAS_CORE_BASE_URL: http://atlas-core:8080
+      ATLAS_DATA_FUSION_STACK: ${ATLAS_DATA_FUSION_STACK:-baseline}
+      ATLAS_CORE_LOG_LEVEL: ${ATLAS_CORE_LOG_LEVEL:-info}
+    labels:
+      atlas.core.project: "atlas-core"
+      atlas.core.resource: "atlas-data-fusion"
+
+volumes:
+  atlas-core-postgres:
+    labels:
+      atlas.core.project: "atlas-core"
+      atlas.core.resource: "postgres-volume"
+  atlas-core-object-storage:
+    labels:
+      atlas.core.project: "atlas-core"
+      atlas.core.resource: "object-storage-volume"

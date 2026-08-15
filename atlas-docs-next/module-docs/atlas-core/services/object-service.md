@@ -13,7 +13,7 @@ API contract: [`../../../contracts/core-api/objects.md`](../../../contracts/core
 - coordinate object metadata through the object store
 - coordinate object file uploads, metadata, byte storage, streaming, and deletion
 - coordinate object file append for append-only payloads such as observation sighting history JSONL
-- require caller-supplied `file_id` for object file upload
+- require caller-supplied `file_id` in the upload URL path for object file upload
 - publish object mutation events after successful writes
 
 ## Store Usage
@@ -26,7 +26,7 @@ File upload must coordinate:
 
 - multipart request validation
 - object existence
-- caller-supplied `file_id`
+- caller-supplied `file_id` from the path
 - file metadata creation
 - byte write to the filesystem volume
 - error cleanup when a normal runtime step fails

@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Action versions are pinned to full commit SHAs (not moving tags) for
+# supply-chain integrity: a maintainer or attacker cannot retag a release
+# under us. The trailing comment records the human-readable version that the
+# SHA points at — bump both together. golangci-lint is pinned to a concrete
+# released version (rather than `latest`) for the same reason and for
+# CI determinism.
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: atlas-core
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.25'
+          cache-dependency-path: atlas-core/go.sum
+      - uses: golangci/golangci-lint-action@25e2cdc5eb1d7a04fdc45ff538f1a00e960ae128 # v8.0.0
+        with:
+          version: v2.11.4
+          working-directory: atlas-core
+          args: --timeout=5m
+
+  unit-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: atlas-core
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.25'
+          cache-dependency-path: atlas-core/go.sum
+      - run: go test -short -race ./...
+
+  integration-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: atlas-core
+    services:
+      postgres:
+        # postgres:17.4 linux/amd64 OCI manifest digest
+        image: postgres@sha256:d4eceb7552a57997fff2e9ceb1a624210e61b6432a2a1f7934a418c27bfe1406
+        env:
+          POSTGRES_DB: atlas_core
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.25'
+          cache-dependency-path: atlas-core/go.sum
+      - run: go test -race ./...
+        env:
+          ATLAS_CORE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/atlas_core?sslmode=disable
+
+  startup-test:
+    runs-on: ubuntu-latest
+    env:
+      ATLAS_DATA_FUSION_STACK: baseline
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: atlas_core
+      POSTGRES_USER: postgres
+      ATLAS_CORE_DATABASE_URL: postgres://postgres:postgres@postgres:5432/atlas_core?sslmode=disable
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Start Atlas Core via CLI
+        run: python atlas-core/tools/atlas-core-cli/main.py start

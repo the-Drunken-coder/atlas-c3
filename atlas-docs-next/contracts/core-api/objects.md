@@ -47,7 +47,7 @@ Object record ownership is defined in [`../data-model/objects.md`](../data-model
 | `GET` | `/objects/{object_id}` | `200` resource | Read an object |
 | `PATCH` | `/objects/{object_id}` | `200` resource | Update object metadata |
 | `DELETE` | `/objects/{object_id}` | `204` empty | Delete an object |
-| `POST` | `/objects/{object_id}/files` | `201` file resource | Upload an object file |
+| `POST` | `/objects/{object_id}/files/{file_id}` | `201` file resource | Upload an object file |
 | `POST` | `/objects/{object_id}/files/{file_id}/append` | `200` file resource | Append bytes to an object file |
 | `GET` | `/objects/{object_id}/files/{file_id}` | `200` file resource | Read object file metadata |
 | `GET` | `/objects/{object_id}/files/{file_id}/content` | `200` byte stream | Stream object file content |
@@ -128,11 +128,10 @@ Deleting an object deletes its object file metadata and file bytes according to 
 
 ## Upload Object File
 
-`POST /objects/{object_id}/files` uses `multipart/form-data`.
+`POST /objects/{object_id}/files/{file_id}` uses `multipart/form-data`. The caller-supplied **`file_id`** (max 50 characters) is part of the URL path, not the form body.
 
 Required multipart fields:
 
-- `file_id` - caller-supplied globally unique file ID, max 50 characters.
 - `file` - file content bytes.
 
 Optional multipart fields:
@@ -140,11 +139,13 @@ Optional multipart fields:
 - `usage_hint`
 - `content_type` only when the multipart part does not supply a usable content type.
 
+Send optional fields before the `file` part so servers can stream the upload without buffering the entire body. Do not send a `file_id` form field; it is rejected.
+
 Core derives `path`, `size_bytes`, and final `content_type`. Upload follows the staging-first write ordering decision.
 
 Failures:
 
-- `400 validation_failed` for missing `file_id`, missing file bytes, invalid ID length, or unsafe multipart fields.
+- `400 validation_failed` for missing file bytes, invalid ID length, a `file_id` form field, or unsafe multipart fields.
 - `404 not_found` when `object_id` does not exist.
 - `409 conflict` when `file_id` already exists.
 - `413 payload_too_large` when upload exceeds configured limit.
