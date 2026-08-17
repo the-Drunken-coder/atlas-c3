@@ -1,5 +1,5 @@
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM golang:1.25 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
 ARG TARGETARCH
 ARG TARGETOS
 WORKDIR /workspace
@@ -10,7 +10,7 @@ RUN : "${TARGETOS:=$(go env GOOS)}"; \
     : "${TARGETARCH:=$(go env GOARCH)}"; \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/atlas-core ./cmd/atlas-core
 
-FROM alpine:3.21
+FROM alpine:3.24
 LABEL atlas.core.project=atlas-core
 WORKDIR /app
 RUN apk add --no-cache ca-certificates su-exec wget \
